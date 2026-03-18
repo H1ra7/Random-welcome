@@ -1,0 +1,5 @@
+node_modules/
+config/groupConfig.json
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*

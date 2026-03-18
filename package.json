@@ -1,0 +1,7 @@
+{
+  "name": "random-welcome",
+  "version": "1.0.0",
+  "description": "TRSS Yunzai 小说群随机欢迎词插件",
+  "type": "module",
+  "private": true
+}
