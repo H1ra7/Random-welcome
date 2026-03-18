@@ -1,0 +1,7 @@
+groups:
+  - 853065300
+default_profile: default
+group_rules:
+  "853065300":
+    enabled: true
+    profile: default

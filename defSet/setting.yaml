@@ -1,0 +1,6 @@
+default_profile: default
+group_rules: {}
+groups: []
+delay_min: 1
+delay_max: 3
+bot_join_welcome: true
