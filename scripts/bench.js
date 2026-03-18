@@ -95,7 +95,7 @@ function buildMessage(groupId, setting, lexiconProfiles, templateProfiles) {
     return null;
   }
   return template
-    .replaceAll("{at_user}", "@123456")
+    .replaceAll("{at_user}", "@Hira")
     .replaceAll("{location}", place.location)
     .replaceAll("{role}", role)
     .replaceAll("{food}", food)

@@ -1,4 +1,5 @@
 import plugin from "../../../lib/plugins/plugin.js";
+import common from "../../../lib/common/common.js";
 import config from "../utils/config.js";
 
 const PLUGIN_NAME = "专属入群欢迎词";
@@ -8,7 +9,7 @@ const PREVIEW_PLUGIN_DESCRIPTION = "配置本群欢迎词开关及预览";
 const EVENT_GROUP_INCREASE = "notice.group.increase";
 const EVENT_MESSAGE = "message";
 const PLUGIN_PRIORITY = 100;
-const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格\\s+.+|#添加欢迎词条\\s+.+|#添加欢迎词\\s+.+|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?)$";
+const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格\\s+.+|#添加欢迎词条\\s+.+|#添加欢迎词\\s+.+|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\\s*\\d+)?)$";
 const COMMAND_RULE_FNC = "handleCommand";
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
@@ -179,7 +180,7 @@ function isDisableCommand(msg) {
 }
 
 function isPreviewCommand(msg) {
-  return msg === CMD_PREVIEW_1 || msg === CMD_PREVIEW_2 || msg === CMD_PREVIEW_TEST_1 || msg === CMD_PREVIEW_TEST_2;
+  return /^#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?$/.test(msg);
 }
 
 function getDedupeWindowMs() {
@@ -310,7 +311,7 @@ export class NovelRandomWelcomePreview extends plugin {
         return true;
       }
       if (isPreviewCommand(msg)) {
-        await this.reply(buildWelcomeMessageArray(this.e, undefined, false));
+        await this.sendPreview(msg, undefined, false);
         return true;
       }
       return false;
@@ -414,10 +415,51 @@ export class NovelRandomWelcomePreview extends plugin {
 
     if (isPreviewCommand(msg)) {
       const groupRule = config.getGroupRule(this.e.group_id);
-      await this.reply(buildWelcomeMessageArray(this.e, this.e.group_id, groupRule.mention_new_member));
+      await this.sendPreview(msg, this.e.group_id, groupRule.mention_new_member);
       return true;
     }
 
     return false;
+  }
+
+  async sendPreview(msg, groupId, allowAt) {
+    const match = msg.match(/^#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*(\d+))?$/);
+    const count = match && match[1] ? Math.max(1, Math.min(100, parseInt(match[1]))) : 1;
+
+    if (count === 1) {
+      await this.reply(buildWelcomeMessageArray(this.e, groupId, allowAt));
+      return;
+    }
+
+    const senderName = this.e.sender?.card || this.e.sender?.nickname || "匿名消息";
+    const senderUin = String(Number(this.e.user_id) || 80000000);
+
+    const rawNodes = [];
+    rawNodes.push({
+      message: `随机欢迎词预览 (${count}条)`,
+      nickname: senderName,
+      user_id: senderUin
+    });
+
+    for (let i = 0; i < count; i++) {
+        rawNodes.push({
+            message: buildWelcomeMessageArray(this.e, groupId, allowAt),
+            nickname: senderName,
+            user_id: senderUin
+        });
+    }
+
+    if (this.e.group?.sendForwardMsg) {
+      await this.e.group.sendForwardMsg(rawNodes);
+    } else if (this.e.friend?.sendForwardMsg) {
+      await this.e.friend.sendForwardMsg(rawNodes);
+    } else {
+      const messages = [];
+      messages.push(`随机欢迎词预览 (${count}条)`);
+      for (let i = 0; i < count; i++) {
+        messages.push(buildWelcomeMessageArray(this.e, groupId, allowAt));
+      }
+      await this.reply(await common.makeForwardMsg(this.e, messages));
+    }
   }
 }

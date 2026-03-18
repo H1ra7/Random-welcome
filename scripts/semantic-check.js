@@ -85,7 +85,7 @@ function buildOneMessage(templates, lexicon) {
   }
 
   const text = String(template)
-    .replaceAll("{at_user}", "@123456")
+    .replaceAll("{at_user}", "@Hira")
     .replaceAll("{location}", wrapQuoted(String(place.location)))
     .replaceAll("{role}", wrapQuoted(String(role)))
     .replaceAll("{food}", wrapQuoted(String(food)))
