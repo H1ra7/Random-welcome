@@ -72,6 +72,17 @@ function pickRandom(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function wrapQuoted(text) {
+  if (typeof text !== "string") {
+    return "";
+  }
+  const value = text.trim();
+  if (!value) {
+    return "";
+  }
+  return `「${value}」`;
+}
+
 function parseTemplate(templateStr, params, e) {
   if (!templateStr) return [""];
   
@@ -114,9 +125,9 @@ function buildWelcomeMessageArray(e, groupId, allowAt = true) {
   if (!place) return ["（获取地点异常）"];
 
   const params = {
-    location: place.location || "",
-    role: pickRandom(place.roles) || "",
-    food: pickRandom(place.foods) || "",
+    location: wrapQuoted(place.location || ""),
+    role: wrapQuoted(pickRandom(place.roles) || ""),
+    food: wrapQuoted(pickRandom(place.foods) || ""),
     botName: global.Bot?.nickname || "机器人",
     allowAt,
   };

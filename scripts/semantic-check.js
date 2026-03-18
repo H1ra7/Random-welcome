@@ -64,6 +64,14 @@ function pickRandom(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function wrapQuoted(text) {
+  const value = typeof text === "string" ? text.trim() : "";
+  if (!value) {
+    return "";
+  }
+  return `「${value}」`;
+}
+
 function buildOneMessage(templates, lexicon) {
   const template = pickRandom(templates);
   const place = pickRandom(lexicon);
@@ -78,9 +86,9 @@ function buildOneMessage(templates, lexicon) {
 
   const text = String(template)
     .replaceAll("{at_user}", "@123456")
-    .replaceAll("{location}", String(place.location))
-    .replaceAll("{role}", String(role))
-    .replaceAll("{food}", String(food))
+    .replaceAll("{location}", wrapQuoted(String(place.location)))
+    .replaceAll("{role}", wrapQuoted(String(role)))
+    .replaceAll("{food}", wrapQuoted(String(food)))
     .replaceAll("{bot_name}", "机器人");
 
   return { text, location: String(place.location), role: String(role), food: String(food) };
