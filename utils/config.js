@@ -13,6 +13,8 @@ const SETTING_APP = "setting";
 const LEXICON_APP = "lexicon";
 const TEMPLATES_APP = "templates";
 const DEFAULT_PROFILE = "default";
+const DEFAULT_MENTION_NEW_MEMBER = true;
+const DEFAULT_DEDUPE_WINDOW_SEC = 30;
 
 function toGroupKey(groupId) {
   return String(Number(groupId));
@@ -81,16 +83,20 @@ class Config {
   getGroupRule(groupId) {
     const id = toGroupId(groupId);
     if (!Number.isFinite(id) || id <= 0) {
-      return { enabled: false, profile: this.setting.default_profile };
+      return { enabled: false, profile: this.setting.default_profile, mention_new_member: this.setting.mention_new_member };
     }
 
     const setting = this.setting;
     const key = toGroupKey(id);
     const rule = setting.group_rules[key];
     if (rule) {
-      return { enabled: rule.enabled, profile: rule.profile || setting.default_profile };
+      return {
+        enabled: rule.enabled,
+        profile: rule.profile || setting.default_profile,
+        mention_new_member: typeof rule.mention_new_member === "boolean" ? rule.mention_new_member : setting.mention_new_member
+      };
     }
-    return { enabled: false, profile: setting.default_profile };
+    return { enabled: false, profile: setting.default_profile, mention_new_member: setting.mention_new_member };
   }
 
   getGroupProfile(groupId) {
@@ -143,9 +149,14 @@ class Config {
     const nextRule = {
       enabled: Boolean(enable),
       profile: oldRule.profile || setting.default_profile,
+      mention_new_member: typeof oldRule.mention_new_member === "boolean" ? oldRule.mention_new_member : setting.mention_new_member,
     };
 
-    if (oldRule.enabled === nextRule.enabled && oldRule.profile === nextRule.profile) {
+    if (
+      oldRule.enabled === nextRule.enabled &&
+      oldRule.profile === nextRule.profile &&
+      oldRule.mention_new_member === nextRule.mention_new_member
+    ) {
       return false;
     }
 
@@ -170,9 +181,43 @@ class Config {
     const nextRule = {
       enabled: oldRule.enabled === undefined ? true : oldRule.enabled,
       profile,
+      mention_new_member: typeof oldRule.mention_new_member === "boolean" ? oldRule.mention_new_member : setting.mention_new_member,
     };
 
-    if (oldRule.enabled === nextRule.enabled && oldRule.profile === nextRule.profile) {
+    if (
+      oldRule.enabled === nextRule.enabled &&
+      oldRule.profile === nextRule.profile &&
+      oldRule.mention_new_member === nextRule.mention_new_member
+    ) {
+      return false;
+    }
+
+    setting.group_rules[key] = nextRule;
+    setting.groups = this.toLegacyGroups(setting.group_rules);
+    this.saveConfig(SETTING_APP, setting);
+    return true;
+  }
+
+  setGroupMention(groupId, enableMention) {
+    const id = toGroupId(groupId);
+    if (!Number.isFinite(id) || id <= 0) {
+      return false;
+    }
+
+    const setting = this.getWritableSetting();
+    const key = toGroupKey(id);
+    const oldRule = setting.group_rules[key] || {};
+    const nextRule = {
+      enabled: oldRule.enabled === undefined ? true : oldRule.enabled,
+      profile: oldRule.profile || setting.default_profile,
+      mention_new_member: Boolean(enableMention),
+    };
+
+    if (
+      oldRule.enabled === nextRule.enabled &&
+      oldRule.profile === nextRule.profile &&
+      oldRule.mention_new_member === nextRule.mention_new_member
+    ) {
       return false;
     }
 
@@ -261,6 +306,12 @@ class Config {
     if (!setting.default_profile) {
       setting.default_profile = this.setting.default_profile || DEFAULT_PROFILE;
     }
+    if (typeof setting.mention_new_member !== "boolean") {
+      setting.mention_new_member = DEFAULT_MENTION_NEW_MEMBER;
+    }
+    if (!Number.isFinite(Number(setting.dedupe_window_sec)) || Number(setting.dedupe_window_sec) < 0) {
+      setting.dedupe_window_sec = DEFAULT_DEDUPE_WINDOW_SEC;
+    }
     return setting;
   }
 
@@ -269,6 +320,12 @@ class Config {
     const defaultProfile = typeof source.default_profile === "string" && source.default_profile.trim() !== ""
       ? source.default_profile.trim()
       : DEFAULT_PROFILE;
+    const mentionNewMember = typeof source.mention_new_member === "boolean"
+      ? source.mention_new_member
+      : DEFAULT_MENTION_NEW_MEMBER;
+    const dedupeWindowSec = Number.isFinite(Number(source.dedupe_window_sec)) && Number(source.dedupe_window_sec) >= 0
+      ? Number(source.dedupe_window_sec)
+      : DEFAULT_DEDUPE_WINDOW_SEC;
     const legacyGroups = Array.isArray(source.groups) ? source.groups.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0) : [];
     const groupRules = {};
     const rawRules = source.group_rules && typeof source.group_rules === "object" ? source.group_rules : {};
@@ -285,19 +342,22 @@ class Config {
       groupRules[key] = {
         enabled: Boolean(rawRule?.enabled),
         profile,
+        mention_new_member: typeof rawRule?.mention_new_member === "boolean" ? rawRule.mention_new_member : mentionNewMember,
       };
     }
 
     for (const id of legacyGroups) {
       const key = toGroupKey(id);
       if (!groupRules[key]) {
-        groupRules[key] = { enabled: true, profile: defaultProfile };
+        groupRules[key] = { enabled: true, profile: defaultProfile, mention_new_member: mentionNewMember };
       }
     }
 
     return {
       ...source,
       default_profile: defaultProfile,
+      mention_new_member: mentionNewMember,
+      dedupe_window_sec: dedupeWindowSec,
       group_rules: groupRules,
       groups: this.toLegacyGroups(groupRules),
     };

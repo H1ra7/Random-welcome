@@ -14,7 +14,7 @@ const border = "########################################"
 
 mark(border)
 mark(`# [random-welcome] 启动成功 >_< 耗时: ${cost}ms #`)
-info("# 功能：随机欢迎词     #")
+info("# 功能：专属入群欢迎     #")
 info("# 指令：#开启欢迎词 / #欢迎词风格列表           #")
 mark(border)
 

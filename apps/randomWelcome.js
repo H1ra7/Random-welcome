@@ -1,25 +1,69 @@
 import plugin from "../../../lib/plugins/plugin.js";
 import config from "../utils/config.js";
 
-const PLUGIN_NAME = "随机欢迎词";
+const PLUGIN_NAME = "专属入群欢迎词";
 const PLUGIN_DESCRIPTION = "入群随机欢迎文案";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
 const PREVIEW_PLUGIN_DESCRIPTION = "配置本群欢迎词开关及预览";
 const EVENT_GROUP_INCREASE = "notice.group.increase";
 const EVENT_MESSAGE = "message";
 const PLUGIN_PRIORITY = 100;
-const COMMAND_RULE_REG = "^(?:#随机欢迎词列表|#欢迎词风格列表|#设置欢迎词风格\\s+.+|#添加欢迎词条\\s+.+|#添加欢迎词\\s+.+|#(?:开启|关闭)?(?:随机)?欢迎词(?:测试)?)$";
+const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格\\s+.+|#添加欢迎词条\\s+.+|#添加欢迎词\\s+.+|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?)$";
 const COMMAND_RULE_FNC = "handleCommand";
-const CMD_PREFIX_ENABLE = "#开启";
-const CMD_PREFIX_DISABLE = "#关闭";
+const CMD_ENABLE = "#开启欢迎词";
+const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
+const CMD_DISABLE = "#关闭欢迎词";
+const CMD_DISABLE_RANDOM = "#关闭随机欢迎词";
 const CMD_PROFILE_SET = "#设置欢迎词风格";
 const CMD_TEMPLATE_ADD = "#添加欢迎词";
 const CMD_LEXICON_ADD = "#添加欢迎词条";
 const CMD_PROFILE_LIST = "#欢迎词风格列表";
 const CMD_GROUP_LIST = "#随机欢迎词列表";
+const CMD_HELP = "#欢迎词帮助";
+const CMD_HELP_ALIAS = "#随机欢迎词帮助";
 const CMD_PREVIEW_1 = "#随机欢迎词";
 const CMD_PREVIEW_2 = "#欢迎词";
-const BOT_JOIN_WELCOME_MSG = "大家好！我是{bot_name}，欢迎使用「随机欢迎词」插件！\n(群管可发 #开启随机欢迎词 来激活本群的入群欢迎。)";
+const CMD_PREVIEW_TEST_1 = "#随机欢迎词测试";
+const CMD_PREVIEW_TEST_2 = "#欢迎词测试";
+const CMD_MENTION_ENABLE = "#欢迎词@开启";
+const CMD_MENTION_DISABLE = "#欢迎词@关闭";
+const CMD_GROUP_SETTING = "#欢迎词设置";
+const ADMIN_ONLY_TEXT = "仅群管理员/群主/机器人主人可执行该命令。";
+const MAX_TEMPLATE_LENGTH = 300;
+const MAX_LEXICON_LOCATION_LENGTH = 30;
+const MAX_LEXICON_ITEM_LENGTH = 30;
+const DEFAULT_DEDUPE_WINDOW_SEC = 30;
+const welcomeDedupMap = new Map();
+
+function getHelpText(isGroup, groupId) {
+  const title = isGroup ? "随机欢迎词帮助（群聊）" : "随机欢迎词帮助（私聊）";
+  const profile = isGroup && groupId ? config.getGroupProfile(groupId) : config.setting.default_profile;
+  const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
+  const groupSetting = isGroup && groupRule
+    ? `\n本群状态：\n- 开关：${groupRule.enabled ? "开启" : "关闭"}\n- 风格：${profile}\n- @新人：${groupRule.mention_new_member ? "开启" : "关闭"}`
+    : "";
+  return `${title}
+功能：
+- 新人入群时自动发送随机欢迎词（地点+身份+美食）
+- 支持按群设置开关、风格、@新人
+- 支持入群事件去重，避免重复欢迎
+
+可用命令：
+- #欢迎词帮助 / #随机欢迎词帮助
+- #随机欢迎词 / #欢迎词 / #随机欢迎词测试 / #欢迎词测试
+- #欢迎词风格列表
+- #欢迎词设置（仅群聊）
+- #开启欢迎词 / #开启随机欢迎词（仅群聊，管理权限）
+- #关闭欢迎词 / #关闭随机欢迎词（仅群聊，管理权限）
+- #欢迎词@开启 / #欢迎词@关闭（仅群聊，管理权限）
+- #设置欢迎词风格 风格名（仅群聊，管理权限）
+- #添加欢迎词 模板内容（仅群聊，管理权限）
+- #添加欢迎词条 地点|角色1,角色2|食物1,食物2（仅群聊，管理权限）
+- #随机欢迎词列表（仅机器人主人）
+
+权限说明：
+- 管理权限 = 群管理员 / 群主 / 机器人主人${groupSetting}`;
+}
 
 function pickRandom(items) {
   if (!Array.isArray(items) || items.length === 0) {
@@ -38,7 +82,7 @@ function parseTemplate(templateStr, params, e) {
     if (!part) continue;
     switch (part) {
       case "{at_user}":
-        if (e && e.user_id) {
+        if (params.allowAt && e?.isGroup && e.user_id) {
           msgArr.push(segment.at(e.user_id));
         }
         break;
@@ -62,7 +106,7 @@ function parseTemplate(templateStr, params, e) {
   return msgArr;
 }
 
-function buildWelcomeMessageArray(e, groupId) {
+function buildWelcomeMessageArray(e, groupId, allowAt = true) {
   const { profile, lexicon, templates } = config.getWelcomeData(groupId);
   if (!lexicon || lexicon.length === 0) return ["（欢迎词词库加载失败，请检查配置）"];
 
@@ -73,7 +117,8 @@ function buildWelcomeMessageArray(e, groupId) {
     location: place.location || "",
     role: pickRandom(place.roles) || "",
     food: pickRandom(place.foods) || "",
-    botName: global.Bot?.nickname || "机器人"
+    botName: global.Bot?.nickname || "机器人",
+    allowAt,
   };
 
   if (!templates || templates.length === 0) return [`（风格 ${profile} 的模板加载失败，请检查配置）`];
@@ -92,8 +137,14 @@ function parseLexiconInput(text) {
     return null;
   }
   const [location, roleText, foodText] = parts;
+  if (location.length > MAX_LEXICON_LOCATION_LENGTH) {
+    return null;
+  }
   const roles = roleText.split(/[，,]/).map((item) => item.trim()).filter(Boolean);
   const foods = foodText.split(/[，,]/).map((item) => item.trim()).filter(Boolean);
+  if (roles.some((item) => item.length > MAX_LEXICON_ITEM_LENGTH) || foods.some((item) => item.length > MAX_LEXICON_ITEM_LENGTH)) {
+    return null;
+  }
   if (!location || roles.length === 0 || foods.length === 0) {
     return null;
   }
@@ -106,6 +157,44 @@ function isAdminOrMaster(e) {
   }
   const role = e.sender?.role;
   return role === "admin" || role === "owner";
+}
+
+function isEnableCommand(msg) {
+  return msg === CMD_ENABLE || msg === CMD_ENABLE_RANDOM;
+}
+
+function isDisableCommand(msg) {
+  return msg === CMD_DISABLE || msg === CMD_DISABLE_RANDOM;
+}
+
+function isPreviewCommand(msg) {
+  return msg === CMD_PREVIEW_1 || msg === CMD_PREVIEW_2 || msg === CMD_PREVIEW_TEST_1 || msg === CMD_PREVIEW_TEST_2;
+}
+
+function getDedupeWindowMs() {
+  const sec = Number(config.setting.dedupe_window_sec);
+  const safeSec = Number.isFinite(sec) && sec >= 0 ? sec : DEFAULT_DEDUPE_WINDOW_SEC;
+  return Math.floor(safeSec * 1000);
+}
+
+function shouldSkipDuplicateWelcome(groupId, userId) {
+  const dedupeWindowMs = getDedupeWindowMs();
+  if (dedupeWindowMs <= 0) {
+    return false;
+  }
+  const now = Date.now();
+  for (const [key, ts] of welcomeDedupMap.entries()) {
+    if (now - ts > dedupeWindowMs) {
+      welcomeDedupMap.delete(key);
+    }
+  }
+  const dedupeKey = `${groupId}:${userId}`;
+  const lastTs = welcomeDedupMap.get(dedupeKey);
+  if (lastTs && now - lastTs <= dedupeWindowMs) {
+    return true;
+  }
+  welcomeDedupMap.set(dedupeKey, now);
+  return false;
 }
 
 export class NovelRandomWelcome extends plugin {
@@ -125,19 +214,16 @@ export class NovelRandomWelcome extends plugin {
 
     const { setting } = config;
 
-    // 机器人自身进群
     if (this.e.user_id === this.e.self_id) {
-      if (setting.bot_join_welcome) {
-        let msgStr = BOT_JOIN_WELCOME_MSG;
-        let msgArr = parseTemplate(msgStr, { botName: global.Bot?.nickname || "机器人" }, this.e);
-        await sleep(1000); // 稍微延迟，等群内加载完成
-        await this.reply(msgArr);
-      }
       return false;
     }
 
     // 检查本群是否开启
     if (!config.isGroupEnabled(this.e.group_id)) {
+      return false;
+    }
+
+    if (shouldSkipDuplicateWelcome(this.e.group_id, this.e.user_id)) {
       return false;
     }
 
@@ -149,7 +235,8 @@ export class NovelRandomWelcome extends plugin {
       await sleep(waitTime * 1000);
     }
 
-    const welcomeMsgArr = buildWelcomeMessageArray(this.e, this.e.group_id);
+    const groupRule = config.getGroupRule(this.e.group_id);
+    const welcomeMsgArr = buildWelcomeMessageArray(this.e, this.e.group_id, groupRule.mention_new_member);
     await this.reply(welcomeMsgArr);
     return true;
   }
@@ -174,6 +261,11 @@ export class NovelRandomWelcomePreview extends plugin {
   async handleCommand() {
     const msg = this.e.msg.trim();
     const isMaster = this.e.isMaster;
+
+    if (msg === CMD_HELP || msg === CMD_HELP_ALIAS) {
+      await this.reply(getHelpText(Boolean(this.e.isGroup), this.e.group_id));
+      return true;
+    }
 
     // 列表命令 (仅限 Master)
     if (msg === CMD_GROUP_LIST) {
@@ -202,32 +294,35 @@ export class NovelRandomWelcomePreview extends plugin {
     }
 
     if (!this.e.isGroup || !this.e.group_id) {
-      if (
-        msg.startsWith(CMD_PREFIX_ENABLE) ||
-        msg.startsWith(CMD_PREFIX_DISABLE) ||
-        msg.startsWith(CMD_PROFILE_SET) ||
-        msg.startsWith(CMD_TEMPLATE_ADD) ||
-        msg.startsWith(CMD_LEXICON_ADD)
-      ) {
+      if (isEnableCommand(msg) || isDisableCommand(msg) || msg === CMD_GROUP_SETTING || msg === CMD_MENTION_ENABLE || msg === CMD_MENTION_DISABLE || msg.startsWith(CMD_PROFILE_SET) || msg.startsWith(CMD_TEMPLATE_ADD) || msg.startsWith(CMD_LEXICON_ADD)) {
         await this.reply("该指令需要在群聊中使用~");
         return true;
       }
-      // 非群聊可以测试
-      if (msg.includes("测试") || msg === CMD_PREVIEW_1 || msg === CMD_PREVIEW_2) {
-        await this.reply(buildWelcomeMessageArray(this.e));
+      if (isPreviewCommand(msg)) {
+        await this.reply(buildWelcomeMessageArray(this.e, undefined, false));
         return true;
       }
       return false;
     }
 
-    // 开关逻辑
-    if (msg.startsWith(CMD_PREFIX_ENABLE) || msg.startsWith(CMD_PREFIX_DISABLE)) {
+    if (msg === CMD_GROUP_SETTING) {
+      const groupRule = config.getGroupRule(this.e.group_id);
+      const delayMin = Number(config.setting.delay_min) || 0;
+      const delayMax = Number(config.setting.delay_max) || 0;
+      const dedupeSec = Number(config.setting.dedupe_window_sec) || DEFAULT_DEDUPE_WINDOW_SEC;
+      const mentionText = groupRule.mention_new_member ? "开启" : "关闭";
+      const enabledText = groupRule.enabled ? "开启" : "关闭";
+      await this.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n延迟：${delayMin}-${delayMax} 秒\n去重窗口：${dedupeSec} 秒`);
+      return true;
+    }
+
+    if (isEnableCommand(msg) || isDisableCommand(msg)) {
       if (!isAdminOrMaster(this.e)) {
-        await this.reply("只有管理员才能更改庇护地的规则哦~");
+        await this.reply(ADMIN_ONLY_TEXT);
         return true;
       }
 
-      const isEnable = msg.startsWith(CMD_PREFIX_ENABLE);
+      const isEnable = isEnableCommand(msg);
       const changed = config.setGroupEnable(this.e.group_id, isEnable);
 
       if (isEnable) {
@@ -240,7 +335,7 @@ export class NovelRandomWelcomePreview extends plugin {
 
     if (msg.startsWith(CMD_PROFILE_SET)) {
       if (!isAdminOrMaster(this.e)) {
-        await this.reply("只有管理员才能设置本群欢迎词风格哦~");
+        await this.reply(ADMIN_ONLY_TEXT);
         return true;
       }
       const profile = msg.slice(CMD_PROFILE_SET.length).trim();
@@ -257,15 +352,27 @@ export class NovelRandomWelcomePreview extends plugin {
       return true;
     }
 
+    if (msg === CMD_MENTION_ENABLE || msg === CMD_MENTION_DISABLE) {
+      if (!isAdminOrMaster(this.e)) {
+        await this.reply(ADMIN_ONLY_TEXT);
+        return true;
+      }
+      const enableMention = msg === CMD_MENTION_ENABLE;
+      const changed = config.setGroupMention(this.e.group_id, enableMention);
+      const stateText = enableMention ? "开启" : "关闭";
+      await this.reply(changed ? `本群欢迎词 @新人 已${stateText}。` : `本群欢迎词 @新人 已经是${stateText}状态。`);
+      return true;
+    }
+
     if (msg.startsWith(CMD_LEXICON_ADD)) {
       if (!isAdminOrMaster(this.e)) {
-        await this.reply("只有管理员才能添加欢迎词词条哦~");
+        await this.reply(ADMIN_ONLY_TEXT);
         return true;
       }
       const payload = msg.slice(CMD_LEXICON_ADD.length).trim();
       const item = parseLexiconInput(payload);
       if (!item) {
-        await this.reply("格式错误，请使用：#添加欢迎词条 地点|角色1,角色2|食物1,食物2");
+        await this.reply(`格式错误，请使用：#添加欢迎词条 地点|角色1,角色2|食物1,食物2\n限制：地点最多 ${MAX_LEXICON_LOCATION_LENGTH} 字，角色/食物每项最多 ${MAX_LEXICON_ITEM_LENGTH} 字`);
         return true;
       }
       const profile = config.getGroupProfile(this.e.group_id);
@@ -276,12 +383,16 @@ export class NovelRandomWelcomePreview extends plugin {
 
     if (msg.startsWith(CMD_TEMPLATE_ADD)) {
       if (!isAdminOrMaster(this.e)) {
-        await this.reply("只有管理员才能添加欢迎词模板哦~");
+        await this.reply(ADMIN_ONLY_TEXT);
         return true;
       }
       const payload = msg.slice(CMD_TEMPLATE_ADD.length).trim();
       if (!payload) {
         await this.reply("格式错误，请使用：#添加欢迎词 模板内容");
+        return true;
+      }
+      if (payload.length > MAX_TEMPLATE_LENGTH) {
+        await this.reply(`模板过长，请控制在 ${MAX_TEMPLATE_LENGTH} 字以内。`);
         return true;
       }
       const profile = config.getGroupProfile(this.e.group_id);
@@ -290,9 +401,9 @@ export class NovelRandomWelcomePreview extends plugin {
       return true;
     }
 
-    // 群内测试预览逻辑
-    if (msg.includes("测试") || msg === CMD_PREVIEW_1 || msg === CMD_PREVIEW_2) {
-      await this.reply(buildWelcomeMessageArray(this.e, this.e.group_id));
+    if (isPreviewCommand(msg)) {
+      const groupRule = config.getGroupRule(this.e.group_id);
+      await this.reply(buildWelcomeMessageArray(this.e, this.e.group_id, groupRule.mention_new_member));
       return true;
     }
 
