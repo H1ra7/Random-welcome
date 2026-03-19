@@ -1,6 +1,7 @@
 groups:
   - 853065300
 default_profile: default
+render_mode: image
 group_rules:
   "853065300":
     enabled: true

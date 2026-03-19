@@ -15,6 +15,8 @@ const TEMPLATES_APP = "templates";
 const DEFAULT_PROFILE = "default";
 const DEFAULT_MENTION_NEW_MEMBER = true;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
+const DEFAULT_RENDER_MODE = "text";
+const VALID_RENDER_MODES = new Set(["text", "image"]);
 
 function toGroupKey(groupId) {
   return String(Number(groupId));
@@ -312,6 +314,9 @@ class Config {
     if (!Number.isFinite(Number(setting.dedupe_window_sec)) || Number(setting.dedupe_window_sec) < 0) {
       setting.dedupe_window_sec = DEFAULT_DEDUPE_WINDOW_SEC;
     }
+    if (!VALID_RENDER_MODES.has(setting.render_mode)) {
+      setting.render_mode = DEFAULT_RENDER_MODE;
+    }
     return setting;
   }
 
@@ -326,6 +331,7 @@ class Config {
     const dedupeWindowSec = Number.isFinite(Number(source.dedupe_window_sec)) && Number(source.dedupe_window_sec) >= 0
       ? Number(source.dedupe_window_sec)
       : DEFAULT_DEDUPE_WINDOW_SEC;
+    const renderMode = VALID_RENDER_MODES.has(source.render_mode) ? source.render_mode : DEFAULT_RENDER_MODE;
     const legacyGroups = Array.isArray(source.groups) ? source.groups.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0) : [];
     const groupRules = {};
     const rawRules = source.group_rules && typeof source.group_rules === "object" ? source.group_rules : {};
@@ -358,6 +364,7 @@ class Config {
       default_profile: defaultProfile,
       mention_new_member: mentionNewMember,
       dedupe_window_sec: dedupeWindowSec,
+      render_mode: renderMode,
       group_rules: groupRules,
       groups: this.toLegacyGroups(groupRules),
     };

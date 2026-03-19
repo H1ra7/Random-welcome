@@ -1,6 +1,7 @@
 import plugin from "../../../lib/plugins/plugin.js";
 import common from "../../../lib/common/common.js";
 import config from "../utils/config.js";
+import { renderWelcomeCard } from "../utils/renderer.js";
 
 const PLUGIN_NAME = "专属入群欢迎词";
 const PLUGIN_DESCRIPTION = "入群随机欢迎文案";
@@ -34,6 +35,7 @@ const MAX_TEMPLATE_LENGTH = 300;
 const MAX_LEXICON_LOCATION_LENGTH = 30;
 const MAX_LEXICON_ITEM_LENGTH = 30;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
+const RENDER_MODE_IMAGE = "image";
 const welcomeDedupMap = new Map();
 
 function getHelpText(isGroup, groupId) {
@@ -116,6 +118,48 @@ function parseTemplate(templateStr, params, e) {
     }
   }
   return msgArr;
+}
+
+function toPlainText(msgArr) {
+  if (!Array.isArray(msgArr) || msgArr.length === 0) {
+    return "";
+  }
+  let text = "";
+  for (const part of msgArr) {
+    if (typeof part === "string") {
+      text += part;
+    }
+  }
+  return text.trim();
+}
+
+function getPuppeteerRenderer(e) {
+  if (e?.runtime?.puppeteer?.screenshot) {
+    return e.runtime.puppeteer;
+  }
+  return null;
+}
+
+function toImageMessage(imageData) {
+  if (Buffer.isBuffer(imageData)) {
+    return segment.image(imageData);
+  }
+  return imageData;
+}
+
+async function buildWelcomeImage(e, groupId) {
+  const renderer = getPuppeteerRenderer(e);
+  if (!renderer) {
+    return false;
+  }
+  const storyText = toPlainText(buildWelcomeMessageArray(e, groupId, false)) || "欢迎来到这里。";
+  return renderWelcomeCard(renderer, {
+    userId: e.user_id,
+    nickname: e?.sender?.card || e?.sender?.nickname || "旅行者",
+    groupName: e?.group_name || e?.group?.info?.group_name || "未知群聊",
+    memberCount: e?.group?.memberCount ?? e?.group?.member_count ?? e?.group?.info?.memberCount ?? e?.group?.info?.member_count ?? e?.group?.memberNum ?? "?",
+    storyText,
+  });
 }
 
 function buildWelcomeMessageArray(e, groupId, allowAt = true) {
@@ -248,8 +292,20 @@ export class NovelRandomWelcome extends plugin {
     }
 
     const groupRule = config.getGroupRule(this.e.group_id);
-    const welcomeMsgArr = buildWelcomeMessageArray(this.e, this.e.group_id, groupRule.mention_new_member);
-    await this.reply(welcomeMsgArr);
+    if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+      const imageBuf = await buildWelcomeImage(this.e, this.e.group_id);
+      if (imageBuf) {
+        const imageMsg = toImageMessage(imageBuf);
+        if (groupRule.mention_new_member) {
+          await this.reply([segment.at(this.e.user_id), imageMsg]);
+        } else {
+          await this.reply(imageMsg);
+        }
+        return true;
+      }
+      logger.error("[random-welcome] 图片渲染失败，回退纯文本发送");
+    }
+    await this.reply(buildWelcomeMessageArray(this.e, this.e.group_id, groupRule.mention_new_member));
     return true;
   }
 }
@@ -427,6 +483,19 @@ export class NovelRandomWelcomePreview extends plugin {
     const count = match && match[1] ? Math.max(1, Math.min(100, parseInt(match[1]))) : 1;
 
     if (count === 1) {
+      if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+        const imageBuf = await buildWelcomeImage(this.e, groupId);
+        if (imageBuf) {
+          const imageMsg = toImageMessage(imageBuf);
+          if (allowAt && this.e?.isGroup && this.e?.user_id) {
+            await this.reply([segment.at(this.e.user_id), imageMsg]);
+          } else {
+            await this.reply(imageMsg);
+          }
+          return;
+        }
+        logger.error("[random-welcome] 预览图渲染失败，回退纯文本发送");
+      }
       await this.reply(buildWelcomeMessageArray(this.e, groupId, allowAt));
       return;
     }

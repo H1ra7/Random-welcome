@@ -1,0 +1,256 @@
+/* ========================================
+   Welcome Card — Fresh & Modern Theme
+   ======================================== */
+
+body, html {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #333;
+}
+
+#container {
+  position: relative;
+  width: 800px;
+  min-height: 460px;
+  padding: 60px 40px;
+  background-color: #e0f7fa;
+  background-image: linear-gradient(135deg, rgba(224, 247, 250, 0.9) 0%, rgba(178, 235, 242, 0.78) 50%, rgba(77, 208, 225, 0.7) 100%), var(--custom-bg-image, none);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 氛围背景装饰 */
+.bg-decor {
+  position: absolute;
+  pointer-events: none;
+}
+.bg-decor-1 {
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%);
+  top: -200px;
+  left: -200px;
+}
+.bg-decor-2 {
+  width: 500px;
+  height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(167, 255, 219, 0.4) 0%, rgba(255,255,255,0) 70%);
+  bottom: -150px;
+  right: -100px;
+}
+.bg-decor-3 {
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 224, 130, 0.4) 0%, rgba(255,255,255,0) 70%);
+  top: 50px;
+  right: 50px;
+}
+
+/* 主卡片（精美玻璃拟物化） */
+.card {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 680px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 32px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 32px 40px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08), inset 0 2px 0 rgba(255,255,255,0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 头部信息区 */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 24px;
+}
+
+.avatar-wrapper {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  flex-shrink: 0;
+}
+
+.avatar-border {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #00b4d8, #90e0ef, #48cae4);
+  z-index: 1;
+  box-shadow: 0 8px 16px rgba(0, 180, 216, 0.3);
+}
+
+.avatar {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid #fff;
+  background: #fff;
+}
+
+.welcome-badge {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  background: #0077b6;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 8px rgba(0, 119, 182, 0.4);
+  border: 2px solid #fff;
+}
+
+.user-info {
+  flex-grow: 1;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.nickname {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 800;
+  color: #023e8a;
+  letter-spacing: 0.5px;
+}
+
+.uid-tag {
+  background: rgba(2, 62, 138, 0.1);
+  color: #023e8a;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.group-info {
+  font-size: 14px;
+  color: #5c677d;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-name {
+  color: #0077b6;
+  font-weight: 700;
+}
+
+.member-count {
+  color: #023e8a;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* 分隔线 */
+.divider {
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 119, 182, 0.2), transparent);
+  margin: 0 0 24px 0;
+}
+
+/* 欢迎文案区 */
+.story-text {
+  margin: 0 0 24px 0;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #334155;
+  font-weight: 500;
+  text-align: justify;
+  background: rgba(255, 255, 255, 0.4);
+  padding: 16px 24px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+/* 专属属性标签 */
+.meta-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  padding: 8px 16px;
+  border-radius: 16px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 180, 216, 0.15);
+  gap: 10px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.meta-icon {
+  font-size: 20px;
+}
+
+.meta-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.meta-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.meta-value {
+  font-size: 15px;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+/* 水印 */
+.watermark {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
+  font-size: 12px;
+  color: rgba(2, 62, 138, 0.25);
+  font-weight: 800;
+  letter-spacing: 2px;
+  z-index: 5;
+  user-select: none;
+}

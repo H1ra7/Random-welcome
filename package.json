@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "bench": "node scripts/bench.js",
-    "check:semantic": "node scripts/semantic-check.js"
+    "check:semantic": "node scripts/semantic-check.js",
+    "preview:html": "node scripts/preview-html.js"
   }
 }

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=800" />
+    <link rel="stylesheet" href="{{cssFileUrl}}" />
+  </head>
+  <body>
+    <div id="container"{{if backgroundImageUrl}} style="--custom-bg-image: url('{{backgroundImageUrl}}');"{{/if}}>
+      <!-- 氛围背景 -->
+      <div class="bg-decor bg-decor-1"></div>
+      <div class="bg-decor bg-decor-2"></div>
+      <div class="bg-decor bg-decor-3"></div>
+
+      <!-- 主卡片 -->
+      <div class="card">
+        <!-- 头部信息 -->
+        <div class="header">
+          <div class="avatar-wrapper">
+            <div class="avatar-border"></div>
+            <img class="avatar" src="{{avatarUrl}}" alt="avatar" />
+            <div class="welcome-badge">NEW</div>
+          </div>
+          
+          <div class="user-info">
+            <div class="title-row">
+              <h1 class="nickname">{{nickname}}</h1>
+              <span class="uid-tag">UID: {{userId}}</span>
+            </div>
+            <div class="group-info">
+              <span>欢迎加入</span>
+              <span class="group-name">{{groupName}}</span>
+              <span>•</span>
+              <span class="member-count">第 {{memberCount}} 位成员</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- 欢迎文案 -->
+        <p class="story-text">{{storyText}}</p>
+
+        <!-- 属性标签 -->
+        <div class="meta-grid">
+          {{if location}}
+          <div class="meta-item">
+            <span class="meta-icon">🌍</span>
+            <div class="meta-text">
+              <div class="meta-label">起源地</div>
+              <div class="meta-value">{{location}}</div>
+            </div>
+          </div>
+          {{/if}}
+          {{if role}}
+          <div class="meta-item">
+            <span class="meta-icon">⚔️</span>
+            <div class="meta-text">
+              <div class="meta-label">身份角色</div>
+              <div class="meta-value">{{role}}</div>
+            </div>
+          </div>
+          {{/if}}
+          {{if food}}
+          <div class="meta-item">
+            <span class="meta-icon">🍱</span>
+            <div class="meta-text">
+              <div class="meta-label">流传特供</div>
+              <div class="meta-value">{{food}}</div>
+            </div>
+          </div>
+          {{/if}}
+        </div>
+      </div>
+      
+      <div class="watermark">RANDOM WELCOME</div>
+    </div>
+  </body>
+</html>
