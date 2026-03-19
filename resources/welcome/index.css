@@ -1,25 +1,32 @@
 /* ========================================
-   Welcome Card — Fresh & Modern Theme
+   Welcome Card — NanoBanana Pro Fantasy Theme
    ======================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Noto+Serif+SC:wght@400;600;700&display=swap');
 
 body, html {
   margin: 0;
   padding: 0;
   background: transparent;
-  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #333;
+  /* 使用衬线字体增强奇幻感 */
+  font-family: "Noto Serif SC", "PingFang SC", "Microsoft YaHei", serif;
+  color: #e2e8f0; /* Default text color in dark theme */
 }
 
 #container {
   position: relative;
   width: 800px;
-  min-height: 460px;
-  padding: 60px 40px;
-  background-color: #e0f7fa;
-  background-image: linear-gradient(135deg, rgba(224, 247, 250, 0.9) 0%, rgba(178, 235, 242, 0.78) 50%, rgba(77, 208, 225, 0.7) 100%), var(--custom-bg-image, none);
-  background-size: cover, cover;
-  background-position: center, center;
-  background-repeat: no-repeat, no-repeat;
+  min-height: 480px;
+  padding: 50px 40px;
+  
+  /* 深色兜底背景，当背景图加载失败时呈现夜空效果 */
+  background-color: #0d0f12;
+  /* --custom-bg-image 由 HTML 注入 */
+  background-image: var(--custom-bg-image, linear-gradient(to bottom, #1a1c29, #0f1016));
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  
   display: flex;
   justify-content: center;
   align-items: center;
@@ -27,51 +34,91 @@ body, html {
   box-sizing: border-box;
 }
 
-/* 氛围背景装饰 */
-.bg-decor {
+/* 魔法暗角与光晕叠加，保证文字不管背景如何都能清晰 */
+.vignette-overlay {
   position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 黑色边角渐变加上整体半透明暗化 */
+  background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0.8) 100%),
+              rgba(10, 12, 18, 0.3);
   pointer-events: none;
-}
-.bg-decor-1 {
-  width: 600px;
-  height: 600px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%);
-  top: -200px;
-  left: -200px;
-}
-.bg-decor-2 {
-  width: 500px;
-  height: 500px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(167, 255, 219, 0.4) 0%, rgba(255,255,255,0) 70%);
-  bottom: -150px;
-  right: -100px;
-}
-.bg-decor-3 {
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 224, 130, 0.4) 0%, rgba(255,255,255,0) 70%);
-  top: 50px;
-  right: 50px;
+  z-index: 1;
 }
 
-/* 主卡片（精美玻璃拟物化） */
+/* 漂浮的星光/魔法粉尘特效 */
+.stardust {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgba(212, 175, 55, 0.8) 20%, transparent 70%);
+  pointer-events: none;
+  z-index: 2;
+  filter: blur(2px);
+  mix-blend-mode: screen;
+}
+.dust-1 { width: 150px; height: 150px; top: -50px; left: -20px; opacity: 0.5; }
+.dust-2 { width: 300px; height: 300px; bottom: -100px; right: -50px; opacity: 0.3; background: radial-gradient(circle, #fff 0%, rgba(138, 43, 226, 0.6) 20%, transparent 70%); }
+.dust-3 { width: 100px; height: 100px; top: 120px; right: 80px; opacity: 0.4; filter: blur(1px); }
+
+/* 主卡片：魔法琉璃材质（暗黑玻璃拟物化） */
 .card {
   position: relative;
   z-index: 10;
   width: 100%;
-  max-width: 680px;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 32px;
+  max-width: 720px;
+  
+  /* 深色半透明背景，带一点蓝紫冷色调的奇幻感 */
+  background: rgba(18, 20, 28, 0.75);
+  /* 边缘高光：顶部和左侧亮线，模拟玻璃边缘反光 */
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-top-color: rgba(255, 235, 180, 0.5);
+  border-bottom-color: rgba(212, 175, 55, 0.1);
+  
+  border-radius: 12px;
+  
+  /* 强烈的毛玻璃效果 */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  padding: 32px 40px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08), inset 0 2px 0 rgba(255,255,255,0.5);
+  
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 0 40px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
+}
+
+/* 卡片内部容器，用于避开顶部和底部的装饰条 */
+.content-wrapper {
+  padding: 32px 40px;
+}
+
+/* 顶部/底部装饰纹理 (金线与星钻) */
+.card-ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  width: 100%;
+  opacity: 0.8;
+}
+.top-ornament {
+  margin-top: 8px;
+  margin-bottom: -16px;
+}
+.bottom-ornament {
+  margin-bottom: 8px;
+  margin-top: -16px;
+}
+.ornament-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.6), transparent);
+  margin: 0 16px;
+}
+.ornament-diamond {
+  color: #d4af37;
+  font-size: 14px;
+  text-shadow: 0 0 8px rgba(212, 175, 55, 0.8);
 }
 
 /* 头部信息区 */
@@ -84,46 +131,59 @@ body, html {
 
 .avatar-wrapper {
   position: relative;
-  width: 110px;
-  height: 110px;
+  width: 100px;
+  height: 100px;
   flex-shrink: 0;
+}
+
+/* 魔法阵光晕 */
+.avatar-glow {
+  position: absolute;
+  inset: -15px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent, rgba(212,175,55,0.2), rgba(212,175,55,0.8), rgba(255,255,255,0.8), transparent);
+  z-index: 1;
+  filter: blur(8px);
+  opacity: 0.7;
 }
 
 .avatar-border {
   position: absolute;
-  inset: -6px;
+  inset: 0;
   border-radius: 50%;
-  background: linear-gradient(135deg, #00b4d8, #90e0ef, #48cae4);
-  z-index: 1;
-  box-shadow: 0 8px 16px rgba(0, 180, 216, 0.3);
+  padding: 3px;
+  background: linear-gradient(135deg, #f9d423, #ff4e50, #8f00ff);
+  z-index: 2;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
 }
 
 .avatar {
-  position: relative;
-  z-index: 2;
   width: 100%;
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  border: 4px solid #fff;
-  background: #fff;
+  background: #111;
+  border: 2px solid #222;
+  box-sizing: border-box;
 }
 
 .welcome-badge {
   position: absolute;
-  bottom: -10px;
+  bottom: -8px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
-  background: #0077b6;
-  color: #fff;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 11px;
+  
+  background: linear-gradient(to right, #b8860b, #d4af37, #b8860b);
+  color: #111;
+  padding: 4px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-family: "Cinzel", "Noto Serif SC", serif;
   font-weight: 800;
   letter-spacing: 1px;
-  box-shadow: 0 4px 8px rgba(0, 119, 182, 0.4);
-  border: 2px solid #fff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255,255,255,0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .user-info {
@@ -132,96 +192,151 @@ body, html {
 
 .title-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-end;
+  gap: 16px;
   margin-bottom: 8px;
 }
 
 .nickname {
   margin: 0;
-  font-size: 32px;
-  font-weight: 800;
-  color: #023e8a;
-  letter-spacing: 0.5px;
+  font-size: 36px;
+  font-weight: 700;
+  /* 金色金属质感文字 */
+  background: linear-gradient(to bottom, #fffde4, #d4af37);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 10px rgba(212, 175, 55, 0.2);
 }
 
 .uid-tag {
-  background: rgba(2, 62, 138, 0.1);
-  color: #023e8a;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
   padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 700;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: "Cinzel", sans-serif;
+  font-weight: 600;
   line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 6px;
 }
 
-.group-info {
-  font-size: 14px;
-  color: #5c677d;
-  font-weight: 500;
+.guild-info {
+  font-size: 15px;
+  color: #cbd5e1;
+  font-weight: 400;
   display: flex;
   align-items: center;
   gap: 8px;
+  opacity: 0.9;
+}
+
+.guild-icon {
+  color: #d4af37;
+  font-size: 16px;
 }
 
 .group-name {
-  color: #0077b6;
-  font-weight: 700;
+  color: #fca5a5; /* 微微泛红/金的颜色，突出群名 */
+  font-weight: 600;
+  text-shadow: 0 0 8px rgba(252, 165, 165, 0.3);
+}
+
+.guild-dot {
+  color: #64748b;
 }
 
 .member-count {
-  color: #023e8a;
+  color: #d4af37;
+  font-family: "Cinzel", "Noto Serif SC", serif;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.6);
-  padding: 2px 8px;
-  border-radius: 6px;
 }
 
 /* 分隔线 */
 .divider {
+  display: flex;
+  align-items: center;
   width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(0, 119, 182, 0.2), transparent);
   margin: 0 0 24px 0;
 }
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(212,175,55,0.3), rgba(212,175,55,0.8), rgba(212,175,55,0.3), transparent);
+}
+.divider-icon {
+  margin: 0 12px;
+  color: rgba(212,175,55,0.8);
+  font-size: 16px;
+}
 
-/* 欢迎文案区 */
+/* 欢迎文案区 (羊皮纸/暗黑魔法书卷风格) */
+.story-box {
+  position: relative;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 20px 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 3px solid #d4af37;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+  margin: 0 0 28px 0;
+}
+
+.story-quote {
+  position: absolute;
+  font-family: serif;
+  font-size: 40px;
+  color: rgba(212, 175, 55, 0.2);
+  line-height: 1;
+}
+.story-quote.left { top: 10px; left: 10px; }
+.story-quote.right { bottom: -10px; right: 15px; }
+
 .story-text {
-  margin: 0 0 24px 0;
+  margin: 0;
   font-size: 16px;
   line-height: 1.8;
-  color: #334155;
-  font-weight: 500;
+  color: #cbd5e1;
+  font-weight: 400;
   text-align: justify;
-  background: rgba(255, 255, 255, 0.4);
-  padding: 16px 24px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  letter-spacing: 0.5px;
+  position: relative;
+  z-index: 2;
 }
 
 /* 专属属性标签 */
 .meta-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
 }
 
 .meta-item {
   display: flex;
   align-items: center;
-  background: #fff;
-  padding: 8px 16px;
-  border-radius: 16px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 180, 216, 0.15);
-  gap: 10px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+  padding: 10px 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
   flex: 1;
   min-width: 160px;
+  transition: all 0.3s ease;
 }
 
-.meta-icon {
-  font-size: 20px;
+.meta-icon-wrapper {
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  box-shadow: inset 0 0 8px rgba(212, 175, 55, 0.1);
 }
 
 .meta-text {
@@ -230,16 +345,19 @@ body, html {
 }
 
 .meta-label {
-  font-size: 12px;
-  color: #64748b;
+  font-size: 11px;
+  font-family: "Cinzel", sans-serif;
+  color: #94a3b8;
   font-weight: 600;
   margin-bottom: 2px;
+  letter-spacing: 0.5px;
 }
 
 .meta-value {
   font-size: 15px;
-  color: #0f172a;
-  font-weight: 800;
+  color: #f8fafc;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
 }
 
 /* 水印 */
@@ -247,10 +365,11 @@ body, html {
   position: absolute;
   right: 20px;
   bottom: 16px;
-  font-size: 12px;
-  color: rgba(2, 62, 138, 0.25);
+  font-size: 10px;
+  font-family: "Cinzel", sans-serif;
+  color: rgba(255, 255, 255, 0.15);
   font-weight: 800;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   z-index: 5;
   user-select: none;
 }
