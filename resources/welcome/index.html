@@ -33,7 +33,7 @@
               <div class="avatar-border">
                 <img class="avatar" src="{{avatarUrl}}" alt="avatar" />
               </div>
-              <div class="welcome-badge">LV.NEW</div>
+              <div class="welcome-badge">{{if groupTitle}}{{groupTitle}}{{else}}LV.NEW{{/if}}</div>
             </div>
             
             <div class="user-info">
@@ -45,7 +45,7 @@
                 <span class="guild-icon">❈</span>
                 <span class="guild-text">欢迎来到 <span class="group-name">「{{groupName}}」</span></span>
                 <span class="guild-dot">·</span>
-                <span class="member-count">凯德拉尔的 {{memberCount}} 位旅者</span>
+                <span class="member-count">凯德拉尔的第 {{memberCount}} 位旅者</span>
               </div>
             </div>
           </div>
@@ -63,36 +63,7 @@
             <div class="story-quote right">❞</div>
           </div>
 
-          <!-- 属性与天赋标签 -->
-          <div class="meta-grid">
-            {{if location}}
-            <div class="meta-item">
-              <div class="meta-icon-wrapper location-icon">🌍</div>
-              <div class="meta-text">
-                <div class="meta-label">起源之地 / ORIGIN</div>
-                <div class="meta-value">{{location}}</div>
-              </div>
-            </div>
-            {{/if}}
-            {{if role}}
-            <div class="meta-item">
-              <div class="meta-icon-wrapper role-icon">⚔️</div>
-              <div class="meta-text">
-                <div class="meta-label">命运位阶 / CLASS</div>
-                <div class="meta-value">{{role}}</div>
-              </div>
-            </div>
-            {{/if}}
-            {{if food}}
-            <div class="meta-item">
-              <div class="meta-icon-wrapper food-icon">�</div>
-              <div class="meta-text">
-                <div class="meta-label">赐福圣物 / RELIC</div>
-                <div class="meta-value">{{food}}</div>
-              </div>
-            </div>
-            {{/if}}
-          </div>
+
         </div>
         
         <!-- 底部装饰纹理 -->
@@ -104,7 +75,7 @@
 
       </div>
       
-      <div class="watermark">NANOBANANA PRO ENGINE</div>
+      <div class="watermark">DIARY OF OLD OBSERVATION</div>
     </div>
   </body>
 </html>

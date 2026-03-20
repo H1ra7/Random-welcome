@@ -152,7 +152,8 @@ body, html {
   inset: 0;
   border-radius: 50%;
   padding: 3px;
-  background: linear-gradient(135deg, #f9d423, #ff4e50, #8f00ff);
+  /* 弱化原来的彩虹紫红色，改用淡金来适配深色磨砂徽章 */
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.8), rgba(212, 175, 55, 0.2), rgba(212, 175, 55, 0.6));
   z-index: 2;
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
 }
@@ -163,27 +164,35 @@ body, html {
   border-radius: 50%;
   object-fit: cover;
   background: #111;
-  border: 2px solid #222;
+  border: 2px solid rgba(26, 28, 36, 0.9);
   box-sizing: border-box;
 }
 
 .welcome-badge {
   position: absolute;
-  bottom: -8px;
+  bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
   
-  background: linear-gradient(to right, #b8860b, #d4af37, #b8860b);
-  color: #111;
-  padding: 4px 16px;
+  background: rgba(18, 20, 28, 0.85); /* 深色/黑色磨砂 */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #f6ebd8; /* 米白色/米金文字 */
+  padding: 5px 18px;
   border-radius: 20px;
-  font-size: 12px;
-  font-family: "Cinzel", "Noto Serif SC", serif;
-  font-weight: 800;
+  font-size: 13px;
+  /* 移除尖锐字体，改用现代平滑系统非衬线体 */
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 500;
   letter-spacing: 1px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255,255,255,0.5);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(212, 175, 55, 0.3); /* 配合原来的金边 */
+  max-width: 168px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .user-info {

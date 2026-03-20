@@ -10,7 +10,7 @@ const PREVIEW_PLUGIN_DESCRIPTION = "配置本群欢迎词开关及预览";
 const EVENT_GROUP_INCREASE = "notice.group.increase";
 const EVENT_MESSAGE = "message";
 const PLUGIN_PRIORITY = 100;
-const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格\\s+.+|#添加欢迎词条\\s+.+|#添加欢迎词\\s+.+|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\\s*\\d+)?)$";
+const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格(?:\\s+.+)?|#添加欢迎词条(?:\\s+.+)?|#添加欢迎词(?:\\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\\s*\\d+)?)$";
 const COMMAND_RULE_FNC = "handleCommand";
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
@@ -36,7 +36,10 @@ const MAX_LEXICON_LOCATION_LENGTH = 30;
 const MAX_LEXICON_ITEM_LENGTH = 30;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
 const RENDER_MODE_IMAGE = "image";
+const EMPTY_TEXT = "";
+const TITLE_MAX_LENGTH = 18;
 const welcomeDedupMap = new Map();
+const lastPickedMap = new Map();
 
 function getHelpText(isGroup, groupId) {
   const title = isGroup ? "随机欢迎词帮助（群聊）" : "随机欢迎词帮助（私聊）";
@@ -68,11 +71,22 @@ function getHelpText(isGroup, groupId) {
 - 管理权限 = 群管理员 / 群主 / 机器人主人${groupSetting}`;
 }
 
-function pickRandom(items) {
+function pickRandom(items, contextKey = null) {
   if (!Array.isArray(items) || items.length === 0) {
     return null;
   }
-  return items[Math.floor(Math.random() * items.length)];
+  if (items.length === 1) return items[0];
+
+  let index = Math.floor(Math.random() * items.length);
+  if (contextKey) {
+    let attempts = 0;
+    while (lastPickedMap.get(contextKey) === index && attempts < 5) {
+      index = Math.floor(Math.random() * items.length);
+      attempts++;
+    }
+    lastPickedMap.set(contextKey, index);
+  }
+  return items[index];
 }
 
 function wrapQuoted(text) {
@@ -147,18 +161,55 @@ function toImageMessage(imageData) {
   return imageData;
 }
 
+function normalizeGroupTitle(title) {
+  if (typeof title !== "string") {
+    return EMPTY_TEXT;
+  }
+  const value = title.trim();
+  if (!value) {
+    return EMPTY_TEXT;
+  }
+  return value.slice(0, TITLE_MAX_LENGTH);
+}
+
+async function getGroupTitle(e) {
+  const senderTitle = normalizeGroupTitle(e?.sender?.title);
+  if (senderTitle) {
+    return senderTitle;
+  }
+
+  const memberTitle = normalizeGroupTitle(e?.member?.title);
+  if (memberTitle) {
+    return memberTitle;
+  }
+
+  if (!e?.group?.pickMember || !e?.user_id) {
+    return EMPTY_TEXT;
+  }
+
+  try {
+    const memberInfo = await e.group.pickMember(e.user_id).getInfo();
+    return normalizeGroupTitle(memberInfo?.title);
+  } catch (error) {
+    logger.warn(`[random-welcome] 获取群头衔失败: ${String(error?.message || error)}`);
+    return EMPTY_TEXT;
+  }
+}
+
 async function buildWelcomeImage(e, groupId) {
   const renderer = getPuppeteerRenderer(e);
   if (!renderer) {
     return false;
   }
   const storyText = toPlainText(buildWelcomeMessageArray(e, groupId, false)) || "欢迎来到这里。";
+  const groupTitle = await getGroupTitle(e);
   return renderWelcomeCard(renderer, {
     userId: e.user_id,
     nickname: e?.sender?.card || e?.sender?.nickname || "旅行者",
     groupName: e?.group_name || e?.group?.info?.group_name || "未知群聊",
     memberCount: e?.group?.memberCount ?? e?.group?.member_count ?? e?.group?.info?.memberCount ?? e?.group?.info?.member_count ?? e?.group?.memberNum ?? "?",
     storyText,
+    groupTitle,
   });
 }
 
@@ -166,20 +217,20 @@ function buildWelcomeMessageArray(e, groupId, allowAt = true) {
   const { profile, lexicon, templates } = config.getWelcomeData(groupId);
   if (!lexicon || lexicon.length === 0) return ["（欢迎词词库加载失败，请检查配置）"];
 
-  const place = pickRandom(lexicon);
+  const place = pickRandom(lexicon, `lexicon_${groupId}`);
   if (!place) return ["（获取地点异常）"];
 
   const params = {
     location: wrapQuoted(place.location || ""),
-    role: wrapQuoted(pickRandom(place.roles) || ""),
-    food: wrapQuoted(pickRandom(place.foods) || ""),
+    role: wrapQuoted(pickRandom(place.roles, `role_${groupId}`) || ""),
+    food: wrapQuoted(pickRandom(place.foods, `food_${groupId}`) || ""),
     botName: global.Bot?.nickname || "机器人",
     allowAt,
   };
 
   if (!templates || templates.length === 0) return [`（风格 ${profile} 的模板加载失败，请检查配置）`];
 
-  const templateStr = pickRandom(templates);
+  const templateStr = pickRandom(templates, `template_${groupId}`);
   return parseTemplate(templateStr, params, e);
 }
 
@@ -227,10 +278,13 @@ function isPreviewCommand(msg) {
   return /^#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?$/.test(msg);
 }
 
-function getDedupeWindowMs() {
+function getConfiguredDedupeWindowSec() {
   const sec = Number(config.setting.dedupe_window_sec);
-  const safeSec = Number.isFinite(sec) && sec >= 0 ? sec : DEFAULT_DEDUPE_WINDOW_SEC;
-  return Math.floor(safeSec * 1000);
+  return Number.isFinite(sec) && sec >= 0 ? sec : DEFAULT_DEDUPE_WINDOW_SEC;
+}
+
+function getDedupeWindowMs() {
+  return Math.floor(getConfiguredDedupeWindowSec() * 1000);
 }
 
 function shouldSkipDuplicateWelcome(groupId, userId) {
@@ -377,7 +431,7 @@ export class NovelRandomWelcomePreview extends plugin {
       const groupRule = config.getGroupRule(this.e.group_id);
       const delayMin = Number(config.setting.delay_min) || 0;
       const delayMax = Number(config.setting.delay_max) || 0;
-      const dedupeSec = Number(config.setting.dedupe_window_sec) || DEFAULT_DEDUPE_WINDOW_SEC;
+      const dedupeSec = getConfiguredDedupeWindowSec();
       const mentionText = groupRule.mention_new_member ? "开启" : "关闭";
       const enabledText = groupRule.enabled ? "开启" : "关闭";
       await this.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n延迟：${delayMin}-${delayMax} 秒\n去重窗口：${dedupeSec} 秒`);

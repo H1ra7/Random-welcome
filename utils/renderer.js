@@ -43,6 +43,7 @@ async function pickRandomBackgroundUrl() {
  * @param {string} opts.groupName       群名称
  * @param {number} opts.memberCount     群成员数
  * @param {string} opts.storyText       随机生成的欢迎文案（纯文本）
+ * @param {string} opts.groupTitle      群头衔（用于徽章显示）
  * @param {string} opts.location        地点名
  * @param {string} opts.role            职业 / 角色
  * @param {string} opts.food            美食
@@ -65,6 +66,7 @@ export async function renderWelcomeCard(puppeteer, opts) {
     groupName: opts.groupName || "未知群聊",
     memberCount: opts.memberCount ?? "?",
     storyText: opts.storyText || "欢迎来到这里。",
+    groupTitle: typeof opts.groupTitle === "string" ? opts.groupTitle : "",
     location: opts.location || "",
     role: opts.role || "",
     food: opts.food || "",

@@ -17,6 +17,8 @@ const DEFAULT_MENTION_NEW_MEMBER = true;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
 const DEFAULT_RENDER_MODE = "text";
 const VALID_RENDER_MODES = new Set(["text", "image"]);
+const YAML_EVENT_CHANGE = "change";
+const YAML_EVENT_RENAME = "rename";
 
 function toGroupKey(groupId) {
   return String(Number(groupId));
@@ -36,6 +38,7 @@ function normalizeList(items) {
 class Config {
   constructor() {
     this.watcher = { config: {}, defSet: {} };
+    this.cache = { config: {}, defSet: {} };
     this.initDefSet();
     this.initConfig();
   }
@@ -277,13 +280,21 @@ class Config {
   getYaml(app, type) {
     let file = path.join(pluginPath, type, `${app}.yaml`);
     this.watch(file, app, type);
+    const cached = this.cache[type][app];
+    if (cached !== undefined) {
+      return cached;
+    }
     if (!fs.existsSync(file)) {
+      this.cache[type][app] = {};
       return {};
     }
     try {
-      return yaml.parse(fs.readFileSync(file, "utf8")) || {};
+      const data = yaml.parse(fs.readFileSync(file, "utf8")) || {};
+      this.cache[type][app] = data;
+      return data;
     } catch (e) {
       console.error(`[${pluginName}] ${type}/${app}.yaml 解析错误:`, e);
+      this.cache[type][app] = {};
       return {};
     }
   }
@@ -292,15 +303,17 @@ class Config {
     if (this.watcher[type][app] || !fs.existsSync(file)) return;
     this.watcher[type][app] = true;
     fs.watch(file, (event) => {
-      if (event === "change") {
-        console.log(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
-      }
+      if (event !== YAML_EVENT_CHANGE && event !== YAML_EVENT_RENAME) return;
+      delete this.cache[type][app];
+      if (event !== YAML_EVENT_CHANGE) return;
+      console.log(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
     });
   }
 
   saveConfig(app, data) {
     let file = path.join(configPath, `${app}.yaml`);
     fs.writeFileSync(file, yaml.stringify(data), "utf8");
+    delete this.cache.config[app];
   }
 
   getWritableSetting() {
