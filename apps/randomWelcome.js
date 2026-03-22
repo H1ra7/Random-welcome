@@ -10,7 +10,7 @@ const PREVIEW_PLUGIN_DESCRIPTION = "配置本群欢迎词开关及预览";
 const EVENT_GROUP_INCREASE = "notice.group.increase";
 const EVENT_MESSAGE = "message";
 const PLUGIN_PRIORITY = 100;
-const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格(?:\\s+.+)?|#添加欢迎词条(?:\\s+.+)?|#添加欢迎词(?:\\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\\s*\\d+)?)$";
+const COMMAND_RULE_REG = "^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格(?:\\s+.+)?|#添加欢迎词条(?:\\s+.+)?|#添加欢迎词(?:\\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\\s*\\d+)?|#发迎新卡(?:\\s+.+)?|#抽专属卡(?:\\s+\\d+)?)$";
 const COMMAND_RULE_FNC = "handleCommand";
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
@@ -30,7 +30,14 @@ const CMD_PREVIEW_TEST_2 = "#欢迎词测试";
 const CMD_MENTION_ENABLE = "#欢迎词@开启";
 const CMD_MENTION_DISABLE = "#欢迎词@关闭";
 const CMD_GROUP_SETTING = "#欢迎词设置";
+const CMD_ADMIN_DRAW = "#发迎新卡";
+const CMD_PRIVATE_DRAW = "#抽专属卡";
 const ADMIN_ONLY_TEXT = "仅群管理员/群主/机器人主人可执行该命令。";
+const ADMIN_DRAW_USAGE_TEXT = "格式错误，请使用：#发迎新卡 @某人";
+const PRIVATE_DRAW_USAGE_TEXT = "格式错误，请使用：#抽专属卡 群号";
+const PRIVATE_DRAW_GROUP_ONLY_TEXT = "该指令请在私聊中使用：#抽专属卡 群号";
+const PRIVATE_DRAW_CD_TEXT = "你今天已经抽过啦，明天再来试试~";
+const PRIVATE_DRAW_REDIS_PREFIX = "random_welcome:daily_draw";
 const MAX_TEMPLATE_LENGTH = 300;
 const MAX_LEXICON_LOCATION_LENGTH = 30;
 const MAX_LEXICON_ITEM_LENGTH = 30;
@@ -59,6 +66,8 @@ function getHelpText(isGroup, groupId) {
 - #随机欢迎词 / #欢迎词 / #随机欢迎词测试 / #欢迎词测试
 - #欢迎词风格列表
 - #欢迎词设置（仅群聊）
+- #发迎新卡 @某人（仅群聊，管理权限）
+- #抽专属卡 群号（仅私聊，每人每天 1 次）
 - #开启欢迎词 / #开启随机欢迎词（仅群聊，管理权限）
 - #关闭欢迎词 / #关闭随机欢迎词（仅群聊，管理权限）
 - #欢迎词@开启 / #欢迎词@关闭（仅群聊，管理权限）
@@ -196,18 +205,153 @@ async function getGroupTitle(e) {
   }
 }
 
-async function buildWelcomeImage(e, groupId) {
+function getMemberCount(e) {
+  return e?.group?.memberCount ?? e?.group?.member_count ?? e?.group?.info?.memberCount ?? e?.group?.info?.member_count ?? e?.group?.memberNum ?? "?";
+}
+
+function getFirstAtUserId(e) {
+  const atData = e?.at;
+  if (Array.isArray(atData) && atData.length > 0) {
+    const first = Number(atData[0]);
+    if (Number.isFinite(first) && first > 0) {
+      return first;
+    }
+  }
+
+  const directAt = Number(atData);
+  if (Number.isFinite(directAt) && directAt > 0) {
+    return directAt;
+  }
+
+  const msg = typeof e?.msg === "string" ? e.msg : EMPTY_TEXT;
+  const match = msg.match(/\[CQ:at,qq=(\d+)\]/);
+  if (match && match[1]) {
+    return Number(match[1]);
+  }
+  return null;
+}
+
+function getSecondsUntilDayEnd() {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  const sec = Math.ceil((end.getTime() - now.getTime()) / 1000);
+  return Math.max(1, sec);
+}
+
+function getRedisClient() {
+  return globalThis.redis || global.redis || null;
+}
+
+async function redisGet(key) {
+  const redisClient = getRedisClient();
+  if (!redisClient?.get) {
+    throw new Error("Redis 客户端不可用");
+  }
+  return redisClient.get(key);
+}
+
+async function redisSetWithExpire(key, value, ttlSec) {
+  const redisClient = getRedisClient();
+  if (!redisClient) {
+    throw new Error("Redis 客户端不可用");
+  }
+  if (typeof redisClient.setEx === "function") {
+    await redisClient.setEx(key, ttlSec, value);
+    return;
+  }
+  if (typeof redisClient.setex === "function") {
+    await redisClient.setex(key, ttlSec, value);
+    return;
+  }
+  if (typeof redisClient.set === "function") {
+    try {
+      await redisClient.set(key, value, { EX: ttlSec });
+      return;
+    } catch (error) {
+      await redisClient.set(key, value, "EX", ttlSec);
+      return;
+    }
+  }
+  throw new Error("Redis 不支持带过期时间的写入");
+}
+
+async function getMemberInfoFromBot(groupId, userId) {
+  const bot = globalThis.Bot || global.Bot;
+  if (!bot) {
+    throw new Error("Bot 实例不可用");
+  }
+
+  const normalizedGroupId = Number(groupId);
+  const normalizedUserId = Number(userId);
+  let group = null;
+  let memberInfo = null;
+  let groupName = EMPTY_TEXT;
+
+  if (typeof bot.pickGroup === "function") {
+    group = bot.pickGroup(normalizedGroupId);
+    groupName = group?.group_name || group?.info?.group_name || EMPTY_TEXT;
+  }
+
+  if (group?.pickMember) {
+    try {
+      memberInfo = await group.pickMember(normalizedUserId).getInfo();
+    } catch (error) {
+      memberInfo = null;
+    }
+
+    if (!groupName && typeof group.getInfo === "function") {
+      try {
+        const groupInfo = await group.getInfo();
+        groupName = groupInfo?.group_name || groupName;
+      } catch (error) {
+        logger.warn(`[random-welcome] 获取群名称失败: ${String(error?.message || error)}`);
+      }
+    }
+  }
+
+  if (!memberInfo && typeof bot.getGroupMemberInfo === "function") {
+    memberInfo = await bot.getGroupMemberInfo(normalizedGroupId, normalizedUserId);
+  }
+
+  if (!groupName && typeof bot.getGroupInfo === "function") {
+    try {
+      const info = await bot.getGroupInfo(normalizedGroupId);
+      groupName = info?.group_name || groupName;
+    } catch (error) {
+      logger.warn(`[random-welcome] getGroupInfo 获取群名称失败: ${String(error?.message || error)}`);
+    }
+  }
+
+  if (!memberInfo) {
+    throw new Error("无法获取群成员信息");
+  }
+
+  return {
+    groupName: groupName || "未知群聊",
+    memberInfo,
+  };
+}
+
+async function buildWelcomeImage(e, groupId, customUserInfo = null, isManual = false) {
   const renderer = getPuppeteerRenderer(e);
   if (!renderer) {
     return false;
   }
   const storyText = toPlainText(buildWelcomeMessageArray(e, groupId, false)) || "欢迎来到这里。";
-  const groupTitle = await getGroupTitle(e);
+  const customTitle = normalizeGroupTitle(customUserInfo?.groupTitle);
+  let groupTitle = customTitle;
+  if (!customUserInfo && !groupTitle) {
+    groupTitle = await getGroupTitle(e);
+  }
+  const memberCount = isManual
+    ? EMPTY_TEXT
+    : (customUserInfo?.memberCount ?? getMemberCount(e));
   return renderWelcomeCard(renderer, {
-    userId: e.user_id,
-    nickname: e?.sender?.card || e?.sender?.nickname || "旅行者",
-    groupName: e?.group_name || e?.group?.info?.group_name || "未知群聊",
-    memberCount: e?.group?.memberCount ?? e?.group?.member_count ?? e?.group?.info?.memberCount ?? e?.group?.info?.member_count ?? e?.group?.memberNum ?? "?",
+    userId: customUserInfo?.userId ?? e.user_id,
+    nickname: customUserInfo?.nickname || e?.sender?.card || e?.sender?.nickname || "旅行者",
+    groupName: customUserInfo?.groupName || e?.group_name || e?.group?.info?.group_name || "未知群聊",
+    memberCount,
     storyText,
     groupTitle,
   });
@@ -276,6 +420,26 @@ function isDisableCommand(msg) {
 
 function isPreviewCommand(msg) {
   return /^#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?$/.test(msg);
+}
+
+function isAdminDrawCommand(msg) {
+  return msg.startsWith(CMD_ADMIN_DRAW);
+}
+
+function isPrivateDrawCommand(msg) {
+  return msg.startsWith(CMD_PRIVATE_DRAW);
+}
+
+function parsePrivateDrawGroupId(msg) {
+  const match = msg.match(/^#抽专属卡(?:\s+(\d+))?$/);
+  if (!match || !match[1]) {
+    return null;
+  }
+  const groupId = Number(match[1]);
+  if (!Number.isFinite(groupId) || groupId <= 0) {
+    return null;
+  }
+  return groupId;
 }
 
 function getConfiguredDedupeWindowSec() {
@@ -380,12 +544,152 @@ export class NovelRandomWelcomePreview extends plugin {
     });
   }
 
+  async handleAdminDraw(msg) {
+    if (!isAdminDrawCommand(msg)) {
+      return false;
+    }
+    if (!this.e.isGroup || !this.e.group_id) {
+      await this.reply("该指令需要在群聊中使用~");
+      return true;
+    }
+    if (!isAdminOrMaster(this.e)) {
+      await this.reply(ADMIN_ONLY_TEXT);
+      return true;
+    }
+
+    const targetUserId = getFirstAtUserId(this.e);
+    if (!targetUserId) {
+      await this.reply(ADMIN_DRAW_USAGE_TEXT);
+      return true;
+    }
+
+    let memberInfo = null;
+    try {
+      if (this.e.group?.pickMember) {
+        memberInfo = await this.e.group.pickMember(targetUserId).getInfo();
+      }
+      if (!memberInfo) {
+        const detail = await getMemberInfoFromBot(this.e.group_id, targetUserId);
+        memberInfo = detail.memberInfo;
+      }
+    } catch (error) {
+      logger.error(`[random-welcome] #发迎新卡 获取成员信息失败: ${String(error?.message || error)}`);
+      await this.reply("获取目标成员信息失败，请确认对方在本群且@格式正确。");
+      return true;
+    }
+
+    const customUserInfo = {
+      userId: targetUserId,
+      nickname: memberInfo?.card || memberInfo?.nickname || `QQ${targetUserId}`,
+      groupName: this.e.group_name || this.e.group?.info?.group_name || "未知群聊",
+      groupTitle: normalizeGroupTitle(memberInfo?.title),
+      memberCount: EMPTY_TEXT,
+    };
+
+    if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+      const imageBuf = await buildWelcomeImage(this.e, this.e.group_id, customUserInfo, true);
+      if (imageBuf) {
+        await this.reply(toImageMessage(imageBuf));
+        return true;
+      }
+      logger.error("[random-welcome] #发迎新卡 图片渲染失败，回退纯文本发送");
+    }
+
+    await this.reply([segment.at(targetUserId), ...buildWelcomeMessageArray(this.e, this.e.group_id, false)]);
+    return true;
+  }
+
+  async handlePrivateDraw(msg) {
+    if (!isPrivateDrawCommand(msg)) {
+      return false;
+    }
+    if (this.e.isGroup) {
+      await this.reply(PRIVATE_DRAW_GROUP_ONLY_TEXT);
+      return true;
+    }
+
+    const groupId = parsePrivateDrawGroupId(msg);
+    if (!groupId) {
+      await this.reply(PRIVATE_DRAW_USAGE_TEXT);
+      return true;
+    }
+
+    const userId = Number(this.e.user_id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      await this.reply("无法识别你的账号信息，请稍后再试。");
+      return true;
+    }
+
+    const cdKey = `${PRIVATE_DRAW_REDIS_PREFIX}:${userId}`;
+    try {
+      const cdValue = await redisGet(cdKey);
+      if (cdValue) {
+        await this.reply(PRIVATE_DRAW_CD_TEXT);
+        return true;
+      }
+    } catch (error) {
+      logger.error(`[random-welcome] 读取私聊抽卡冷却失败: ${String(error?.message || error)}`);
+      await this.reply("抽卡冷却服务暂不可用，请稍后再试。");
+      return true;
+    }
+
+    let detail = null;
+    try {
+      detail = await getMemberInfoFromBot(groupId, userId);
+    } catch (error) {
+      logger.error(`[random-welcome] #抽专属卡 成员校验失败: ${String(error?.message || error)}`);
+      await this.reply("无法获取你的群成员信息，请检查群号并确认你在该群内。");
+      return true;
+    }
+
+    const customUserInfo = {
+      userId,
+      nickname: detail.memberInfo?.card || detail.memberInfo?.nickname || this.e.sender?.nickname || "旅行者",
+      groupName: detail.groupName,
+      groupTitle: normalizeGroupTitle(detail.memberInfo?.title),
+      memberCount: EMPTY_TEXT,
+    };
+
+    let replyPayload = null;
+    if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+      const imageBuf = await buildWelcomeImage(this.e, groupId, customUserInfo, true);
+      if (imageBuf) {
+        replyPayload = toImageMessage(imageBuf);
+      } else {
+        logger.error("[random-welcome] #抽专属卡 图片渲染失败，回退纯文本发送");
+      }
+    }
+
+    if (!replyPayload) {
+      replyPayload = [`来自「${detail.groupName}」的专属欢迎词：`, ...buildWelcomeMessageArray(this.e, groupId, false)];
+    }
+
+    try {
+      await redisSetWithExpire(cdKey, String(groupId), getSecondsUntilDayEnd());
+    } catch (error) {
+      logger.error(`[random-welcome] 写入私聊抽卡冷却失败: ${String(error?.message || error)}`);
+      await this.reply("抽卡冷却服务暂不可用，请稍后再试。");
+      return true;
+    }
+
+    await this.reply(replyPayload);
+    return true;
+  }
+
   async handleCommand() {
     const msg = this.e.msg.trim();
     const isMaster = this.e.isMaster;
 
     if (msg === CMD_HELP || msg === CMD_HELP_ALIAS) {
       await this.reply(getHelpText(Boolean(this.e.isGroup), this.e.group_id));
+      return true;
+    }
+
+    if (await this.handleAdminDraw(msg)) {
+      return true;
+    }
+
+    if (await this.handlePrivateDraw(msg)) {
       return true;
     }
 

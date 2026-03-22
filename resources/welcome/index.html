@@ -44,8 +44,10 @@
               <div class="guild-info">
                 <span class="guild-icon">❈</span>
                 <span class="guild-text">欢迎来到 <span class="group-name">「{{groupName}}」</span></span>
-                <span class="guild-dot">·</span>
-                <span class="member-count">凯德拉尔的第 {{memberCount}} 位旅者</span>
+                {{if memberCount}}
+                  <span class="guild-dot">·</span>
+                  <span class="member-count">凯德拉尔的第 {{memberCount}} 位旅者</span>
+                {{/if}}
               </div>
             </div>
           </div>
