@@ -1,5 +1,5 @@
 default_profile: default
-# 渲染模式: text=纯文本, image=图片卡片(需要 Puppeteer)
+# 渲染模式: text=纯文本, image=图片卡片(需要 @karinjs/plugin-puppeteer)
 render_mode: text
 group_rules: {}
 groups: []

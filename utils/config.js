@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import yaml from "yaml";
+import yaml from "node-karin/yaml";
+import { logger } from "node-karin";
 
 const pluginName = "random-welcome";
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -293,7 +294,7 @@ class Config {
       this.cache[type][app] = data;
       return data;
     } catch (e) {
-      console.error(`[${pluginName}] ${type}/${app}.yaml 解析错误:`, e);
+      logger.error(`[${pluginName}] ${type}/${app}.yaml 解析错误: ${String(e?.message || e)}`);
       this.cache[type][app] = {};
       return {};
     }
@@ -302,11 +303,14 @@ class Config {
   watch(file, app, type) {
     if (this.watcher[type][app] || !fs.existsSync(file)) return;
     this.watcher[type][app] = true;
-    fs.watch(file, (event) => {
+    const watcher = fs.watch(file, (event) => {
       if (event !== YAML_EVENT_CHANGE && event !== YAML_EVENT_RENAME) return;
       delete this.cache[type][app];
       if (event !== YAML_EVENT_CHANGE) return;
-      console.log(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
+      logger.info(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
+    });
+    watcher.on("error", (error) => {
+      logger.warn(`[${pluginName}] 监听 ${type}/${app}.yaml 失败: ${String(error?.message || error)}`);
     });
   }
 

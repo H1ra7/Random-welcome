@@ -1,5 +1,6 @@
 node_modules/
 config/groupConfig.json
+temp/html/
 npm-debug.log*
 pnpm-debug.log*
 yarn-error.log*

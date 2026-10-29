@@ -1,12 +1,33 @@
 {
   "name": "random-welcome",
-  "version": "1.0.0",
-  "description": "TRSS Yunzai 随机欢迎词插件",
+  "version": "2.0.0",
+  "description": "Karin 随机欢迎词插件",
   "type": "module",
+  "main": "index.js",
   "private": true,
   "scripts": {
     "bench": "node scripts/bench.js",
     "check:semantic": "node scripts/semantic-check.js",
     "preview:html": "node scripts/preview-html.js"
+  },
+  "karin": {
+    "apps": [
+      "apps"
+    ],
+    "static": [
+      "resources"
+    ],
+    "files": [
+      "config",
+      "data",
+      "defSet",
+      "resources"
+    ]
+  },
+  "engines": {
+    "karin": ">=1.18.0"
+  },
+  "devDependencies": {
+    "yaml": "^2.8.0"
   }
 }

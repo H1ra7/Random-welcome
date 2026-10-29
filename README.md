@@ -1,6 +1,8 @@
 # random-welcome
 
-TRSS Yunzai 插件：新成员入群时，按“地点 -> 专属职业/种族 -> 专属美食”随机生成欢迎词。
+Karin 插件：新成员入群时，按“地点 -> 专属职业/种族 -> 专属美食”随机生成欢迎词。
+
+> `karin` 分支为 Karin 版本；`main` 分支保留原 TRSS-Yunzai 版本。
 
 ## 目录结构
 
@@ -9,7 +11,8 @@ random-welcome/
 ├─ apps/
 │  └─ randomWelcome.js
 ├─ utils/
-│  └─ config.js
+│  ├─ config.js
+│  └─ renderer.js
 ├─ defSet/
 │  ├─ setting.yaml
 │  ├─ lexicon.yaml
@@ -18,17 +21,33 @@ random-welcome/
 │  ├─ setting.yaml (运行中自动生成)
 │  ├─ lexicon.yaml (运行中自动生成)
 │  └─ templates.yaml (运行中自动生成)
+├─ resources/
+│  └─ welcome/
 ├─ index.js
 └─ package.json
 ```
 
 ## 安装
 
-将本目录放到 Yunzai 的 `plugins/random-welcome`。
+1. 将本目录放到 Karin 的 `plugins/random-welcome`。
+2. 在 Karin 根目录安装渲染器（图片模式需要）：
+
+```bash
+pnpm add @karinjs/plugin-puppeteer -w
+```
+
+3. 启动 Karin，确认日志出现 `[random-welcome] Karin 插件加载成功`。
+4. 如需图片卡片，把 `config/setting.yaml` 中的 `render_mode` 改为 `image`：
+
+```yaml
+render_mode: image
+```
+
+没有安装渲染器时，图片模式会自动回退为纯文本。
 
 ## 功能
 
-- 事件：`notice.group.increase`
+- 事件：`notice.groupMemberAdd`
 - 场景：群内有新成员入群时自动发送欢迎词
 - 支持按群独立开启/关闭
 - 支持按群设置不同欢迎词风格（profile）
@@ -65,6 +84,7 @@ random-welcome/
 - `group_rules.<group_id>.mention_new_member`：本群欢迎词是否 `@新人`
 - `delay_min` / `delay_max`：欢迎词随机延迟秒数区间
 - `dedupe_window_sec`：欢迎去重窗口秒数
+- `render_mode`：`text` 或 `image`
 
 `lexicon.yaml`：
 
@@ -73,3 +93,12 @@ random-welcome/
 `templates.yaml`：
 
 - `profiles.<profile>.templates[]`
+
+## Karin 适配说明
+
+- 入群者 ID 取 `e.content.targetId`，不是 `e.userId`。
+- 群名称、成员数、成员名片、群头衔通过 `e.bot.getGroupInfo()` / `e.bot.getGroupMemberInfo()` 获取。
+- 合并转发使用 `common.makeForward()` + `e.bot.sendForwardMsg()`。
+- Redis 冷却使用 `node-karin` 导出的 `redis`。
+- 图片渲染使用 `render.render()`；HTML 模板沿用 art-template 语法。
+- `notice.groupMemberAdd`、群头衔、成员数依赖适配器能力；QQ 官方 Bot 适配器可能不提供入群通知。

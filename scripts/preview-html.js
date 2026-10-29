@@ -1,13 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import template from "art-template";
+import template from "node-karin/art-template";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const pluginRoot = path.resolve(path.dirname(scriptPath), "..");
-const yunzaiRoot = path.resolve(pluginRoot, "..", "..");
 const tplFile = path.join(pluginRoot, "resources", "welcome", "index.html");
-const defaultOutFile = path.join(yunzaiRoot, "temp", "html", "random-welcome-welcome-card", "random-welcome-welcome-card.html");
+const defaultOutFile = path.join(pluginRoot, "temp", "html", "random-welcome-welcome-card", "random-welcome-welcome-card.html");
 const outFile = process.env.RW_PREVIEW_OUT || defaultOutFile;
 const cssFileUrl = pathToFileURL(path.join(pluginRoot, "resources", "welcome", "index.css")).href;
 
