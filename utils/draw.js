@@ -20,6 +20,48 @@ const PRIVATE_DRAW_GROUP_ONLY_TEXT = "该指令请在私聊中使用：#抽专�
 const ADMIN_DRAW_USAGE_TEXT = "格式错误，请使用：#发迎新卡 @某人";
 const MEMBER_INFO_FAIL_TEXT = "获取目标成员信息失败，请确认对方在本群且@格式正确。";
 
+/**
+ * 群临时会话的发送通道。
+ * Karin 1.18.0 对 groupTemp 的 sendMsg 只带 user_id，NapCat 需要 group_id+user_id 才能回临时会话；
+ * 这里在 OneBot 环境下直接走 send_private_msg，失败再回退标准 e.reply。
+ */
+function toOneBotElements(payload) {
+  const parts = Array.isArray(payload) ? payload : [payload];
+  const elements = [];
+  for (const part of parts) {
+    if (typeof part === "string") {
+      elements.push({ type: "text", data: { text: part } });
+    } else if (part?.type === "text") {
+      elements.push({ type: "text", data: { text: part.text } });
+    } else if (part?.type === "image") {
+      elements.push({ type: "image", data: { file: part.file } });
+    } else {
+      return null;
+    }
+  }
+  return elements.length > 0 ? elements : null;
+}
+
+async function replyPrivateDraw(e, payload, groupId) {
+  const userId = Number(e.userId);
+  if (e.isGroupTemp && groupId && Number.isFinite(userId) && typeof e.bot?.sendApi === "function") {
+    const message = toOneBotElements(payload);
+    if (message) {
+      try {
+        await e.bot.sendApi("send_private_msg", {
+          user_id: userId,
+          group_id: Number(groupId),
+          message,
+        });
+        return;
+      } catch (error) {
+        logger.warn(`[random-welcome] 群临时会话发送失败，回退 e.reply: ${String(error?.message || error)}`);
+      }
+    }
+  }
+  await e.reply(payload);
+}
+
 export function getFirstAtUserId(e) {
   const atData = e?.at;
   if (Array.isArray(atData) && atData.length > 0) {
@@ -92,6 +134,7 @@ async function resolveUserForCard(e, groupId, userId, fallbackGroupName) {
     nickname: memberInfo?.card || memberInfo?.nick || `QQ${userId}`,
     groupName: groupInfo?.groupName || fallbackGroupName || "未知群聊",
     groupTitle: normalizeGroupTitle(memberInfo?.uniqueTitle),
+    memberLevel: Number(memberInfo?.level) > 0 ? Number(memberInfo.level) : null,
     memberCount: groupInfo?.memberCount ?? "?",
     memberInfo,
   };
@@ -142,37 +185,39 @@ export async function handleAdminDraw(e, msg) {
   return true;
 }
 
-/** #抽专属卡 群号（私聊，每人每天一次） */
+/** #抽专属卡 群号（私聊/群临时会话，每人每天一次） */
 export async function handlePrivateDraw(e, msg) {
   if (!msg.startsWith("#抽专属卡")) {
     return false;
   }
-  if (!e.isPrivate) {
+  // 群临时会话不是 isPrivate（contact.scene === "groupTemp"），但同样是点对点可用
+  if (!e.isPrivate && !e.isGroupTemp) {
     await e.reply(PRIVATE_DRAW_GROUP_ONLY_TEXT);
     return true;
   }
 
   const groupId = parsePrivateDrawGroupId(msg);
   if (!groupId) {
-    await e.reply(PRIVATE_DRAW_USAGE_TEXT);
+    await replyPrivateDraw(e, PRIVATE_DRAW_USAGE_TEXT, null);
     return true;
   }
+  const reply = (payload) => replyPrivateDraw(e, payload, groupId);
 
   const userId = String(e.userId);
   if (!/^\d+$/.test(userId) || userId === "0") {
-    await e.reply("无法识别你的账号信息，请稍后再试。");
+    await reply("无法识别你的账号信息，请稍后再试。");
     return true;
   }
 
   const cdKey = `${PRIVATE_DRAW_REDIS_PREFIX}:${userId}`;
   try {
     if (await redisGet(cdKey)) {
-      await e.reply(PRIVATE_DRAW_CD_TEXT);
+      await reply(PRIVATE_DRAW_CD_TEXT);
       return true;
     }
   } catch (error) {
     logger.error(`[random-welcome] 读取私聊抽卡冷却失败: ${String(error?.message || error)}`);
-    await e.reply("抽卡冷却服务暂不可用，请稍后再试。");
+    await reply("抽卡冷却服务暂不可用，请稍后再试。");
     return true;
   }
 
@@ -184,7 +229,7 @@ export async function handlePrivateDraw(e, msg) {
     }
   } catch (error) {
     logger.error(`[random-welcome] #抽专属卡 成员校验失败: ${String(error?.message || error)}`);
-    await e.reply("无法获取你的群成员信息，请检查群号并确认你在该群内。");
+    await reply("无法获取你的群成员信息，请检查群号并确认你在该群内。");
     return true;
   }
 
@@ -204,10 +249,10 @@ export async function handlePrivateDraw(e, msg) {
     await redisSetWithExpire(cdKey, groupId, getSecondsUntilDayEnd());
   } catch (error) {
     logger.error(`[random-welcome] 写入私聊抽卡冷却失败: ${String(error?.message || error)}`);
-    await e.reply("抽卡冷却服务暂不可用，请稍后再试。");
+    await reply("抽卡冷却服务暂不可用，请稍后再试。");
     return true;
   }
 
-  await e.reply(replyPayload);
+  await reply(replyPayload);
   return true;
 }

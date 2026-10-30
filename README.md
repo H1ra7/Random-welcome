@@ -77,7 +77,7 @@ render_mode: image
 - `#欢迎词风格列表`
 - `#欢迎词设置`
 - `#发迎新卡 @某人`（仅群管理员/群主/机器人主人）
-- `#抽专属卡 群号`（仅私聊，每人每天 1 次）
+- `#抽专属卡 群号`（私聊/群临时会话，每人每天 1 次）
 - `#欢迎词@开启` / `#欢迎词@关闭`
 - `#设置欢迎词风格 风格名`
 - `#添加欢迎词 模板内容`
@@ -113,4 +113,5 @@ render_mode: image
 - Redis 冷却使用 `node-karin` 导出的 `redis`。
 - 图片渲染使用 `render.render()`；HTML 模板沿用 art-template 语法。
 - `notice.groupMemberAdd`、群头衔、成员数依赖适配器能力；QQ 官方 Bot 适配器可能不提供入群通知。
+- `#抽专属卡` 同时接受好友私聊和群临时会话。群临时会话在 OneBot 下改用 `send_private_msg` 并携带 `group_id`，因为 Karin 1.18.0 的 `e.reply` 对 groupTemp 只传 `user_id`，NapCat 会拒收；其它适配器回退标准 `e.reply`。
 - 入群事件是「先到先得」：任一插件在该事件里 `return true` 就会中断后续插件。若同时装了其它入群通知插件（如 `karin-plugin-ling`），需让它们返回 `false` 放行，否则自动欢迎会时有时无。Karin 1.18.0 的 `accept` 不参与排序，插件顺序取决于注册时序。
