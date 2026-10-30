@@ -1,9 +1,17 @@
-import path from "node:path";
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { common, karin, logger, redis, segment } from "node-karin";
+import { common, karin, logger, segment } from "node-karin";
 import config from "../utils/config.js";
-import { renderWelcomeCard } from "../utils/renderer.js";
+import { handleAdminDraw, handlePrivateDraw } from "../utils/draw.js";
+import { CMD_UPDATE_PLUGIN, handleUpdateCommand } from "../utils/update.js";
+import {
+  ADMIN_ONLY_TEXT,
+  buildWelcomeImage,
+  buildWelcomeMessageArray,
+  isAdminOrMaster,
+  normalizeGroupTitle,
+  renderMode,
+  resolveGroupUser,
+  toPlainText,
+} from "../utils/welcome.js";
 
 const PLUGIN_NAME = "专属入群欢迎词";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
@@ -24,274 +32,11 @@ const CMD_HELP_ALIAS = "#随机欢迎词帮助";
 const CMD_MENTION_ENABLE = "#欢迎词@开启";
 const CMD_MENTION_DISABLE = "#欢迎词@关闭";
 const CMD_GROUP_SETTING = "#欢迎词设置";
-const CMD_ADMIN_DRAW = "#发迎新卡";
-const CMD_PRIVATE_DRAW = "#抽专属卡";
-const CMD_UPDATE_PLUGIN = "#更新欢迎词插件";
-const UPDATE_ONLY_TEXT = "仅机器人主人可执行插件更新。";
-const UPDATE_TIMEOUT_MS = 60_000;
-const ADMIN_ONLY_TEXT = "仅群管理员/群主/机器人主人可执行该命令。";
-const ADMIN_DRAW_USAGE_TEXT = "格式错误，请使用：#发迎新卡 @某人";
-const PRIVATE_DRAW_USAGE_TEXT = "格式错误，请使用：#抽专属卡 群号";
-const PRIVATE_DRAW_GROUP_ONLY_TEXT = "该指令请在私聊中使用：#抽专属卡 群号";
-const PRIVATE_DRAW_CD_TEXT = "你今天已经抽过啦，明天再来试试~";
-const PRIVATE_DRAW_REDIS_PREFIX = "random_welcome:daily_draw";
 const MAX_TEMPLATE_LENGTH = 300;
 const MAX_LEXICON_LOCATION_LENGTH = 30;
 const MAX_LEXICON_ITEM_LENGTH = 30;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
-const RENDER_MODE_IMAGE = "image";
-const EMPTY_TEXT = "";
-const TITLE_MAX_LENGTH = 18;
 const welcomeDedupMap = new Map();
-const lastPickedMap = new Map();
-
-function getHelpNodes(isGroup, groupId) {
-  const profile = isGroup && groupId ? config.getGroupProfile(groupId) : config.setting.default_profile;
-  const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
-  const nodes = [
-    `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
-    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）`,
-    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
-    `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
-    `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n- #更新欢迎词插件：拉取 karin 分支最新代码（仅主人，需手动重启）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
-  ];
-  if (groupRule) {
-    nodes.push(
-      `【本群状态】\n- 开关：${groupRule.enabled ? "开启" : "关闭"}\n- 风格：${profile}\n- @新人：${groupRule.mention_new_member ? "开启" : "关闭"}`,
-    );
-  }
-  return nodes;
-}
-
-function pickRandom(items, contextKey = null) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return null;
-  }
-  if (items.length === 1) return items[0];
-
-  let index = Math.floor(Math.random() * items.length);
-  if (contextKey) {
-    let attempts = 0;
-    while (lastPickedMap.get(contextKey) === index && attempts < 5) {
-      index = Math.floor(Math.random() * items.length);
-      attempts++;
-    }
-    lastPickedMap.set(contextKey, index);
-  }
-  return items[index];
-}
-
-function wrapQuoted(text) {
-  if (typeof text !== "string") {
-    return "";
-  }
-  const value = text.trim();
-  if (!value) {
-    return "";
-  }
-  return `「${value}」`;
-}
-
-function parseTemplate(templateStr, params) {
-  if (!templateStr) return [""];
-
-  const parts = templateStr.split(/(\{.*?\})/);
-  const msgArr = [];
-
-  for (const part of parts) {
-    if (!part) continue;
-    switch (part) {
-      case "{at_user}":
-        if (params.allowAt && params.atUserId) {
-          msgArr.push(segment.at(String(params.atUserId)));
-        }
-        break;
-      case "{location}":
-        msgArr.push(params.location || "");
-        break;
-      case "{role}":
-        msgArr.push(params.role || "");
-        break;
-      case "{food}":
-        msgArr.push(params.food || "");
-        break;
-      case "{bot_name}":
-        msgArr.push(params.botName || "机器人");
-        break;
-      default:
-        msgArr.push(part);
-        break;
-    }
-  }
-  return msgArr;
-}
-
-function toPlainText(msgArr) {
-  if (!Array.isArray(msgArr) || msgArr.length === 0) {
-    return "";
-  }
-  let text = "";
-  for (const part of msgArr) {
-    if (typeof part === "string") {
-      text += part;
-    }
-  }
-  return text.trim();
-}
-
-function normalizeGroupTitle(title) {
-  if (typeof title !== "string") {
-    return EMPTY_TEXT;
-  }
-  const value = title.trim();
-  if (!value) {
-    return EMPTY_TEXT;
-  }
-  return value.slice(0, TITLE_MAX_LENGTH);
-}
-
-function getFirstAtUserId(e) {
-  const atData = e?.at;
-  if (Array.isArray(atData) && atData.length > 0) {
-    const first = String(atData[0]).trim();
-    if (/^\d+$/.test(first)) {
-      return first;
-    }
-  }
-
-  const msg = typeof e?.msg === "string" ? e.msg : EMPTY_TEXT;
-  const match = msg.match(/\[CQ:at,qq=(\d+)\]/);
-  if (match && match[1]) {
-    return match[1];
-  }
-  return null;
-}
-
-function getSecondsUntilDayEnd() {
-  const now = new Date();
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  const sec = Math.ceil((end.getTime() - now.getTime()) / 1000);
-  return Math.max(1, sec);
-}
-
-async function redisGet(key) {
-  if (!redis?.get) {
-    throw new Error("Redis 客户端不可用");
-  }
-  return redis.get(key);
-}
-
-async function redisSetWithExpire(key, value, ttlSec) {
-  if (!redis) {
-    throw new Error("Redis 客户端不可用");
-  }
-  if (typeof redis.setEx === "function") {
-    await redis.setEx(key, ttlSec, value);
-    return;
-  }
-  if (typeof redis.setex === "function") {
-    await redis.setex(key, ttlSec, value);
-    return;
-  }
-  if (typeof redis.set === "function") {
-    try {
-      await redis.set(key, value, { EX: ttlSec });
-      return;
-    } catch {
-      await redis.set(key, value, "EX", ttlSec);
-      return;
-    }
-  }
-  throw new Error("Redis 不支持带过期时间的写入");
-}
-
-async function getGroupInfo(e, groupId) {
-  if (!groupId) return null;
-  try {
-    return await e.bot.getGroupInfo(String(groupId));
-  } catch (error) {
-    logger.warn(`[random-welcome] 获取群信息失败: ${String(error?.message || error)}`);
-    return null;
-  }
-}
-
-async function resolveGroupUser(e, groupId, userId, options = {}) {
-  const { requireMember = false, fallbackGroupName = e.contact?.name } = options;
-  const [groupInfo, memberInfo] = await Promise.all([
-    getGroupInfo(e, groupId),
-    e.bot.getGroupMemberInfo(String(groupId), String(userId)).catch((error) => {
-      logger.warn(`[random-welcome] 获取群成员信息失败: ${String(error?.message || error)}`);
-      return null;
-    }),
-  ]);
-
-  if (requireMember && !memberInfo) {
-    throw new Error("无法获取群成员信息");
-  }
-
-  return {
-    userId: String(userId),
-    nickname: memberInfo?.card || memberInfo?.nick || `QQ${userId}`,
-    groupName: groupInfo?.groupName || fallbackGroupName || "未知群聊",
-    groupTitle: normalizeGroupTitle(memberInfo?.uniqueTitle),
-    memberCount: groupInfo?.memberCount ?? "?",
-  };
-}
-
-function buildWelcomeMessageArray(e, groupId, allowAt = true, atUserId = null) {
-  const { profile, lexicon, templates } = config.getWelcomeData(groupId);
-  if (!lexicon || lexicon.length === 0) return ["（欢迎词词库加载失败，请检查配置）"];
-
-  const place = pickRandom(lexicon, `lexicon_${groupId}`);
-  if (!place) return ["（获取地点异常）"];
-
-  const atTarget = atUserId ?? e?.userId;
-  const params = {
-    location: wrapQuoted(place.location || ""),
-    role: wrapQuoted(pickRandom(place.roles, `role_${groupId}`) || ""),
-    food: wrapQuoted(pickRandom(place.foods, `food_${groupId}`) || ""),
-    botName: e?.bot?.selfName || e?.bot?.account?.name || "机器人",
-    allowAt,
-    atUserId: atTarget,
-  };
-
-  if (!templates || templates.length === 0) return [`（风格 ${profile} 的模板加载失败，请检查配置）`];
-
-  const templateStr = pickRandom(templates, `template_${groupId}`);
-  return parseTemplate(templateStr, params);
-}
-
-async function getMemberCount(e, groupId) {
-  const groupInfo = await getGroupInfo(e, groupId);
-  return groupInfo?.memberCount ?? "?";
-}
-
-async function buildWelcomeImage(e, groupId, userInfo = null, isManual = false) {
-  const userId = userInfo?.userId ?? e.userId;
-  const memberCount = isManual ? EMPTY_TEXT : (userInfo?.memberCount ?? await getMemberCount(e, groupId));
-  const storyText = toPlainText(buildWelcomeMessageArray(e, groupId, false)) || "欢迎来到这里。";
-
-  try {
-    const image = await renderWelcomeCard({
-      userId,
-      nickname: userInfo?.nickname || e.sender?.card || e.sender?.nick || `QQ${userId}`,
-      groupName: userInfo?.groupName || e.contact?.name || "未知群聊",
-      memberCount,
-      storyText,
-      groupTitle: userInfo?.groupTitle ?? normalizeGroupTitle(e.sender?.title),
-    });
-    if (!image) {
-      return false;
-    }
-    // render.render 返回裸 base64；NapCat/OneBot 只认 base64:// 前缀，裸串会报「识别URL失败」并丢消息
-    const file = String(image).startsWith("base64://") ? String(image) : `base64://${image}`;
-    return segment.image(file);
-  } catch (error) {
-    logger.error(`[random-welcome] 图片渲染失败: ${String(error?.message || error)}`);
-    return false;
-  }
-}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -317,14 +62,6 @@ function parseLexiconInput(text) {
   return { location, roles, foods };
 }
 
-function isAdminOrMaster(e) {
-  if (e.isMaster) {
-    return true;
-  }
-  const role = e.sender?.role;
-  return role === "admin" || role === "owner";
-}
-
 function isEnableCommand(msg) {
   return msg === CMD_ENABLE || msg === CMD_ENABLE_RANDOM;
 }
@@ -337,38 +74,19 @@ function isPreviewCommand(msg) {
   return /^#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?$/.test(msg);
 }
 
-function isAdminDrawCommand(msg) {
-  return msg.startsWith(CMD_ADMIN_DRAW);
-}
-
-function isPrivateDrawCommand(msg) {
-  return msg.startsWith(CMD_PRIVATE_DRAW);
-}
-
-function parsePrivateDrawGroupId(msg) {
-  const match = msg.match(/^#抽专属卡(?:\s+(\d+))?$/);
-  if (!match || !match[1]) {
-    return null;
-  }
-  return match[1];
-}
-
 function getConfiguredDedupeWindowSec() {
   const sec = Number(config.setting.dedupe_window_sec);
   return Number.isFinite(sec) && sec >= 0 ? sec : DEFAULT_DEDUPE_WINDOW_SEC;
 }
 
-function getDedupeWindowMs() {
-  return Math.floor(getConfiguredDedupeWindowSec() * 1000);
-}
-
+/** 去重登记：返回 true 表示窗口期内已欢迎过。开关关闭时不应调用，避免污染状态。 */
 function shouldSkipDuplicateWelcome(groupId, userId) {
-  const dedupeWindowMs = getDedupeWindowMs();
+  const dedupeWindowMs = Math.floor(getConfiguredDedupeWindowSec() * 1000);
   if (dedupeWindowMs <= 0) {
     return false;
   }
   const now = Date.now();
-  for (const [key, ts] of welcomeDedupMap.entries()) {
+  for (const [key, ts] of welcomeDedupMap) {
     if (now - ts > dedupeWindowMs) {
       welcomeDedupMap.delete(key);
     }
@@ -382,112 +100,37 @@ function shouldSkipDuplicateWelcome(groupId, userId) {
   return false;
 }
 
-async function handleAdminDraw(e, msg) {
-  if (!isAdminDrawCommand(msg)) {
-    return false;
+/** 延迟区间：空值或反向区间时不做延迟，避免负数/NaN 传给 setTimeout */
+function getDelayMs() {
+  const min = Number(config.setting.delay_min);
+  const max = Number(config.setting.delay_max);
+  const safeMin = Number.isFinite(min) && min >= 0 ? min : 0;
+  const safeMax = Number.isFinite(max) && max >= 0 ? max : 0;
+  if (safeMax <= 0 || safeMax < safeMin) {
+    return 0;
   }
-  if (!e.isGroup || !e.groupId) {
-    await e.reply("该指令需要在群聊中使用~");
-    return true;
-  }
-  if (!isAdminOrMaster(e)) {
-    await e.reply(ADMIN_ONLY_TEXT);
-    return true;
-  }
-
-  const targetUserId = getFirstAtUserId(e);
-  if (!targetUserId) {
-    await e.reply(ADMIN_DRAW_USAGE_TEXT);
-    return true;
-  }
-
-  let userInfo = null;
-  try {
-    userInfo = await resolveGroupUser(e, e.groupId, targetUserId, { requireMember: true });
-  } catch (error) {
-    logger.error(`[random-welcome] #发迎新卡 获取成员信息失败: ${String(error?.message || error)}`);
-    await e.reply("获取目标成员信息失败，请确认对方在本群且@格式正确。");
-    return true;
-  }
-
-  if (config.setting.render_mode === RENDER_MODE_IMAGE) {
-    const image = await buildWelcomeImage(e, e.groupId, userInfo, true);
-    if (image) {
-      await e.reply(image);
-      return true;
-    }
-    logger.error("[random-welcome] #发迎新卡 图片渲染失败，回退纯文本发送");
-  }
-
-  await e.reply([segment.at(targetUserId), ...buildWelcomeMessageArray(e, e.groupId, false)]);
-  return true;
+  return Math.floor((safeMin + Math.random() * (safeMax - safeMin)) * 1000);
 }
 
-async function handlePrivateDraw(e, msg) {
-  if (!isPrivateDrawCommand(msg)) {
-    return false;
+function getHelpNodes(isGroup, groupId, isMaster) {
+  const profile = isGroup && groupId ? config.getGroupProfile(groupId) : config.setting.default_profile;
+  const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
+  const nodes = [
+    `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
+    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）`,
+    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
+    `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
+    `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
+  ];
+  if (isMaster) {
+    nodes.push("【主人】\n- #更新欢迎词插件：拉取 karin 分支最新代码（需手动重启）");
   }
-  if (!e.isPrivate) {
-    await e.reply(PRIVATE_DRAW_GROUP_ONLY_TEXT);
-    return true;
+  if (groupRule) {
+    nodes.push(
+      `【本群状态】\n- 开关：${groupRule.enabled ? "开启" : "关闭"}\n- 风格：${profile}\n- @新人：${groupRule.mention_new_member ? "开启" : "关闭"}`,
+    );
   }
-
-  const groupId = parsePrivateDrawGroupId(msg);
-  if (!groupId) {
-    await e.reply(PRIVATE_DRAW_USAGE_TEXT);
-    return true;
-  }
-
-  const userId = String(e.userId);
-  if (!/^\d+$/.test(userId) || userId === "0") {
-    await e.reply("无法识别你的账号信息，请稍后再试。");
-    return true;
-  }
-
-  const cdKey = `${PRIVATE_DRAW_REDIS_PREFIX}:${userId}`;
-  try {
-    const cdValue = await redisGet(cdKey);
-    if (cdValue) {
-      await e.reply(PRIVATE_DRAW_CD_TEXT);
-      return true;
-    }
-  } catch (error) {
-    logger.error(`[random-welcome] 读取私聊抽卡冷却失败: ${String(error?.message || error)}`);
-    await e.reply("抽卡冷却服务暂不可用，请稍后再试。");
-    return true;
-  }
-
-  let userInfo = null;
-  try {
-    userInfo = await resolveGroupUser(e, groupId, userId, { requireMember: true, fallbackGroupName: "未知群聊" });
-  } catch (error) {
-    logger.error(`[random-welcome] #抽专属卡 成员校验失败: ${String(error?.message || error)}`);
-    await e.reply("无法获取你的群成员信息，请检查群号并确认你在该群内。");
-    return true;
-  }
-
-  let replyPayload = null;
-  if (config.setting.render_mode === RENDER_MODE_IMAGE) {
-    replyPayload = await buildWelcomeImage(e, groupId, userInfo, true);
-    if (!replyPayload) {
-      logger.error("[random-welcome] #抽专属卡 图片渲染失败，回退纯文本发送");
-    }
-  }
-
-  if (!replyPayload) {
-    replyPayload = [`来自「${userInfo.groupName}」的专属欢迎词：`, ...buildWelcomeMessageArray(e, groupId, false)];
-  }
-
-  try {
-    await redisSetWithExpire(cdKey, groupId, getSecondsUntilDayEnd());
-  } catch (error) {
-    logger.error(`[random-welcome] 写入私聊抽卡冷却失败: ${String(error?.message || error)}`);
-    await e.reply("抽卡冷却服务暂不可用，请稍后再试。");
-    return true;
-  }
-
-  await e.reply(replyPayload);
-  return true;
+  return nodes;
 }
 
 async function sendPreview(e, msg, groupId, allowAt) {
@@ -495,7 +138,7 @@ async function sendPreview(e, msg, groupId, allowAt) {
   const count = match && match[1] ? Math.max(1, Math.min(100, parseInt(match[1], 10))) : 1;
 
   if (count === 1) {
-    if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+    if (renderMode()) {
       const image = await buildWelcomeImage(e, groupId);
       if (image) {
         if (allowAt && e.isGroup && e.userId) {
@@ -542,85 +185,8 @@ async function sendForward(e, messages, title) {
 }
 
 async function sendHelp(e, isGroup, groupId) {
-  const nodes = [`随机欢迎词帮助（${isGroup ? "群聊" : "私聊"}）`, ...getHelpNodes(isGroup, groupId)];
+  const nodes = [`随机欢迎词帮助（${isGroup ? "群聊" : "私聊"}）`, ...getHelpNodes(isGroup, groupId, Boolean(e.isMaster))];
   await sendForward(e, nodes, nodes[0]);
-}
-
-/**
- * 插件根目录（本文件位于 <plugin>/apps/）。
- * 用相对自身文件解析，避免依赖 Karin 的 cwd。
- */
-const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-function runGit(args) {
-  return new Promise((resolve) => {
-    execFile("git", ["-C", PLUGIN_ROOT, ...args], { timeout: UPDATE_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
-      resolve({
-        ok: !error,
-        stdout: String(stdout ?? "").trim(),
-        stderr: String(stderr ?? "").trim(),
-        error: error ? (error.code ?? "unknown") : null,
-        signal: error?.signal ?? null,
-      });
-    });
-  });
-}
-
-async function handleUpdateCommand(e, msg) {
-  if (msg !== CMD_UPDATE_PLUGIN) {
-    return false;
-  }
-  if (!e.isMaster) {
-    await e.reply(UPDATE_ONLY_TEXT);
-    return true;
-  }
-
-  const before = await runGit(["rev-parse", "--short", "HEAD"]);
-  if (!before.ok) {
-    const reason = before.stderr || (before.error === "ENOENT" ? "未找到 git 命令" : before.error);
-    await e.reply(`无法读取当前版本：${reason}\n插件路径：${PLUGIN_ROOT}`);
-    return true;
-  }
-
-  await e.reply(`正在更新…当前版本 ${before.stdout}`);
-
-  // 不要带 --depth：浅克隆会写入 .git/shallow，之后 ff-only 更新会被误判为分叉
-  const fetch = await runGit(["fetch", "origin", "karin"]);
-  if (!fetch.ok) {
-    await e.reply(`拉取失败：\n${(fetch.stderr || fetch.stdout || fetch.error).slice(0, 900)}`);
-    return true;
-  }
-
-  const checkout = await runGit(["checkout", "karin"]);
-  if (!checkout.ok) {
-    const stderr = checkout.stderr || checkout.error;
-    await e.reply(`切换 karin 分支失败：\n${String(stderr).slice(0, 900)}\n\n如有本地改动，请先处理后再试。`);
-    return true;
-  }
-
-  const pull = await runGit(["pull", "--ff-only", "origin", "karin"]);
-  if (!pull.ok) {
-    const detail = (pull.stderr || pull.stdout || pull.error).slice(0, 900);
-    await e.reply(`更新失败（可能有本地改动或分叉）：\n${detail}\n\n当前版本仍为 ${before.stdout}`);
-    return true;
-  }
-
-  const after = await runGit(["rev-parse", "--short", "HEAD"]);
-  const afterVersion = after.ok ? after.stdout : "unknown";
-  if (afterVersion === before.stdout) {
-    await e.reply(`已是最新版本：${before.stdout}\n无需重启。`);
-    return true;
-  }
-
-  let detail = "";
-  const log = await runGit(["log", "--oneline", `${before.stdout}..${afterVersion}`]);
-  if (log.ok && log.stdout) {
-    detail = `\n\n本次拉取：\n${log.stdout.split("\n").slice(0, 5).join("\n")}`;
-  }
-
-  logger.mark(`[random-welcome] 插件已更新 ${before.stdout} -> ${afterVersion}`);
-  await e.reply(`更新完成：${before.stdout} → ${afterVersion}${detail}\n\n代码类改动需重启才生效，请在服务器执行 docker restart karin（或其他 Karin 重启方式）。`);
-  return true;
 }
 
 async function handleCommand(e) {
@@ -692,12 +258,16 @@ async function handleCommand(e) {
 
   if (msg === CMD_GROUP_SETTING) {
     const groupRule = config.getGroupRule(e.groupId);
-    const delayMin = Number(config.setting.delay_min) || 0;
-    const delayMax = Number(config.setting.delay_max) || 0;
+    const delayMin = Math.max(0, Number(config.setting.delay_min) || 0);
+    const delayMax = Math.max(0, Number(config.setting.delay_max) || 0);
     const dedupeSec = getConfiguredDedupeWindowSec();
     const mentionText = groupRule.mention_new_member ? "开启" : "关闭";
     const enabledText = groupRule.enabled ? "开启" : "关闭";
-    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n延迟：${delayMin}-${delayMax} 秒\n去重窗口：${dedupeSec} 秒`);
+    const delayText = delayMax < delayMin
+    ? `已忽略（delay_min=${config.setting.delay_min} / delay_max=${config.setting.delay_max}，区间无效）`
+    : `${delayMin}-${delayMax} 秒`;
+    const renderText = renderMode() ? "image" : "text";
+    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n延迟：${delayText}\n去重窗口：${dedupeSec} 秒\n渲染：${renderText}`);
     return true;
   }
 
@@ -801,25 +371,19 @@ export const randomWelcome = karin.accept(
     const groupId = e.contact?.peer;
     const userId = e.content?.targetId;
 
-    if (!groupId || !userId) {
+    // 返回 true 会中断后续插件；这里所有「不处理」分支都必须返回 false 并放行
+    if (!groupId || !userId || String(userId) === String(e.selfId) || !config.isGroupEnabled(groupId)) {
       return false;
     }
-    if (String(userId) === String(e.selfId)) {
-      return false;
-    }
-    if (!config.isGroupEnabled(groupId)) {
-      return false;
-    }
+    // 去重命中说明本窗口内已欢迎过，让事件继续传给其它插件
     if (shouldSkipDuplicateWelcome(groupId, userId)) {
       return false;
     }
 
-    const { setting } = config;
-    const minDelay = Number(setting.delay_min) || 0;
-    const maxDelay = Number(setting.delay_max) || 0;
-    if (maxDelay >= minDelay && maxDelay > 0) {
-      const waitTime = minDelay + Math.random() * (maxDelay - minDelay);
-      await sleep(waitTime * 1000);
+    // 延迟期间事件已被接受，不再把事件交给后续插件，避免重复欢迎
+    const delayMs = getDelayMs();
+    if (delayMs > 0) {
+      await sleep(delayMs);
     }
 
     const groupRule = config.getGroupRule(groupId);
@@ -832,7 +396,7 @@ export const randomWelcome = karin.accept(
       logger.warn(`[random-welcome] 获取入群成员信息失败: ${String(error?.message || error)}`);
     }
 
-    if (config.setting.render_mode === RENDER_MODE_IMAGE) {
+    if (renderMode()) {
       const image = await buildWelcomeImage(e, groupId, userInfo);
       if (image) {
         await e.reply(mention ? [segment.at(String(userId)), image] : image);

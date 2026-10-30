@@ -307,7 +307,7 @@ class Config {
       if (event !== YAML_EVENT_CHANGE && event !== YAML_EVENT_RENAME) return;
       delete this.cache[type][app];
       if (event !== YAML_EVENT_CHANGE) return;
-      logger.info(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
+      logger.debug(`[${pluginName}] ${type}/${app}.yaml 发生修改`);
     });
     watcher.on("error", (error) => {
       logger.warn(`[${pluginName}] 监听 ${type}/${app}.yaml 失败: ${String(error?.message || error)}`);
