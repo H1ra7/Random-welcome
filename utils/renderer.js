@@ -43,7 +43,7 @@ async function pickRandomBackgroundUrl() {
  * @param {number|string} opts.memberCount 群成员数
  * @param {string} opts.storyText       随机生成的欢迎文案（纯文本）
  * @param {string} opts.groupTitle      群头衔（用于徽章显示）
- * @returns {Promise<string>}           base64 图片
+ * @returns {Promise<string>}           裸 base64（不含协议前缀，调用方需补 base64://）
  */
 export async function renderWelcomeCard(opts) {
   const backgroundImageUrl = await pickRandomBackgroundUrl();

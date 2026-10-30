@@ -275,7 +275,12 @@ async function buildWelcomeImage(e, groupId, userInfo = null, isManual = false) 
       storyText,
       groupTitle: userInfo?.groupTitle ?? normalizeGroupTitle(e.sender?.title),
     });
-    return image ? segment.image(image) : false;
+    if (!image) {
+      return false;
+    }
+    // render.render 返回裸 base64；NapCat/OneBot 只认 base64:// 前缀，裸串会报「识别URL失败」并丢消息
+    const file = String(image).startsWith("base64://") ? String(image) : `base64://${image}`;
+    return segment.image(file);
   } catch (error) {
     logger.error(`[random-welcome] 图片渲染失败: ${String(error?.message || error)}`);
     return false;
