@@ -17,6 +17,7 @@ const DEFAULT_PROFILE = "default";
 const DEFAULT_MENTION_NEW_MEMBER = true;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
 const DEFAULT_RENDER_MODE = "text";
+const DEFAULT_ALLOW_GROUP_PREVIEW = false;
 const VALID_RENDER_MODES = new Set(["text", "image"]);
 const YAML_EVENT_CHANGE = "change";
 const YAML_EVENT_RENAME = "rename";
@@ -233,6 +234,17 @@ class Config {
     return true;
   }
 
+  setAllowGroupPreview(enable) {
+    const next = Boolean(enable);
+    const setting = this.getWritableSetting();
+    if (setting.allow_group_preview === next) {
+      return false;
+    }
+    setting.allow_group_preview = next;
+    this.saveConfig(SETTING_APP, setting);
+    return true;
+  }
+
   addTemplate(profile, template) {
     if (typeof template !== "string" || template.trim() === "") {
       return false;
@@ -334,6 +346,9 @@ class Config {
     if (!VALID_RENDER_MODES.has(setting.render_mode)) {
       setting.render_mode = DEFAULT_RENDER_MODE;
     }
+    if (typeof setting.allow_group_preview !== "boolean") {
+      setting.allow_group_preview = DEFAULT_ALLOW_GROUP_PREVIEW;
+    }
     return setting;
   }
 
@@ -349,6 +364,9 @@ class Config {
       ? Number(source.dedupe_window_sec)
       : DEFAULT_DEDUPE_WINDOW_SEC;
     const renderMode = VALID_RENDER_MODES.has(source.render_mode) ? source.render_mode : DEFAULT_RENDER_MODE;
+    const allowGroupPreview = typeof source.allow_group_preview === "boolean"
+      ? source.allow_group_preview
+      : DEFAULT_ALLOW_GROUP_PREVIEW;
     const legacyGroups = Array.isArray(source.groups) ? source.groups.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0) : [];
     const groupRules = {};
     const rawRules = source.group_rules && typeof source.group_rules === "object" ? source.group_rules : {};
@@ -382,6 +400,7 @@ class Config {
       mention_new_member: mentionNewMember,
       dedupe_window_sec: dedupeWindowSec,
       render_mode: renderMode,
+      allow_group_preview: allowGroupPreview,
       group_rules: groupRules,
       groups: this.toLegacyGroups(groupRules),
     };

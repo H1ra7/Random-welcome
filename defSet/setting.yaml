@@ -1,6 +1,8 @@
 default_profile: default
 # 渲染模式: text=纯文本, image=图片卡片(需要 @karinjs/plugin-puppeteer)
 render_mode: text
+# 群内预览开关: false=群里静默禁用, true=允许任何人预览（私聊/群临时会话不受影响）
+allow_group_preview: false
 group_rules: {}
 groups: []
 delay_min: 1
