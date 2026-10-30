@@ -39,36 +39,22 @@ const TITLE_MAX_LENGTH = 18;
 const welcomeDedupMap = new Map();
 const lastPickedMap = new Map();
 
-function getHelpText(isGroup, groupId) {
-  const title = isGroup ? "随机欢迎词帮助（群聊）" : "随机欢迎词帮助（私聊）";
+function getHelpNodes(isGroup, groupId) {
   const profile = isGroup && groupId ? config.getGroupProfile(groupId) : config.setting.default_profile;
   const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
-  const groupSetting = isGroup && groupRule
-    ? `\n本群状态：\n- 开关：${groupRule.enabled ? "开启" : "关闭"}\n- 风格：${profile}\n- @新人：${groupRule.mention_new_member ? "开启" : "关闭"}`
-    : "";
-  return `${title}
-功能：
-- 新人入群时自动发送随机欢迎词（地点+身份+美食）
-- 支持按群设置开关、风格、@新人
-- 支持入群事件去重，避免重复欢迎
-
-可用命令：
-- #欢迎词帮助 / #随机欢迎词帮助
-- #随机欢迎词 / #欢迎词 / #随机欢迎词测试 / #欢迎词测试
-- #欢迎词风格列表
-- #欢迎词设置（仅群聊）
-- #发迎新卡 @某人（仅群聊，管理权限）
-- #抽专属卡 群号（仅私聊，每人每天 1 次）
-- #开启欢迎词 / #开启随机欢迎词（仅群聊，管理权限）
-- #关闭欢迎词 / #关闭随机欢迎词（仅群聊，管理权限）
-- #欢迎词@开启 / #欢迎词@关闭（仅群聊，管理权限）
-- #设置欢迎词风格 风格名（仅群聊，管理权限）
-- #添加欢迎词 模板内容（仅群聊，管理权限）
-- #添加欢迎词条 地点|角色1,角色2|食物1,食物2（仅群聊，管理权限）
-- #随机欢迎词列表（仅机器人主人）
-
-权限说明：
-- 管理权限 = 群管理员 / 群主 / 机器人主人${groupSetting}`;
+  const nodes = [
+    `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
+    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）`,
+    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
+    `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
+    `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
+  ];
+  if (groupRule) {
+    nodes.push(
+      `【本群状态】\n- 开关：${groupRule.enabled ? "开启" : "关闭"}\n- 风格：${profile}\n- @新人：${groupRule.mention_new_member ? "开启" : "关闭"}`,
+    );
+  }
+  return nodes;
 }
 
 function pickRandom(items, contextKey = null) {
@@ -514,12 +500,17 @@ async function sendPreview(e, msg, groupId, allowAt) {
     return;
   }
 
-  const senderName = e.sender?.card || e.sender?.nick || "匿名消息";
-  const messages = [`随机欢迎词预览 (${count}条)`];
+  const title = `随机欢迎词预览 (${count}条)`;
+  const messages = [title];
   for (let i = 0; i < count; i++) {
     messages.push(buildWelcomeMessageArray(e, groupId, allowAt, e.userId));
   }
 
+  await sendForward(e, messages, title);
+}
+
+async function sendForward(e, messages, title) {
+  const senderName = e.sender?.card || e.sender?.nick || "匿名消息";
   const nodes = common.makeForward(
     messages.map((message) => common.makeMessage(message)),
     String(e.selfId),
@@ -528,13 +519,20 @@ async function sendPreview(e, msg, groupId, allowAt) {
 
   try {
     await e.bot.sendForwardMsg(e.contact, nodes);
+    return true;
   } catch (error) {
     logger.error(`[random-welcome] 合并转发失败，回退逐条文本: ${String(error?.message || error)}`);
     const texts = messages
       .map((message) => (typeof message === "string" ? message : toPlainText(message)))
       .filter(Boolean);
-    await e.reply(texts.join("\n\n"));
+    await e.reply([title, ...texts].filter(Boolean).join("\n\n"));
+    return false;
   }
+}
+
+async function sendHelp(e, isGroup, groupId) {
+  const nodes = [`随机欢迎词帮助（${isGroup ? "群聊" : "私聊"}）`, ...getHelpNodes(isGroup, groupId)];
+  await sendForward(e, nodes, nodes[0]);
 }
 
 async function handleCommand(e) {
@@ -542,7 +540,7 @@ async function handleCommand(e) {
   const isMaster = e.isMaster;
 
   if (msg === CMD_HELP || msg === CMD_HELP_ALIAS) {
-    await e.reply(getHelpText(Boolean(e.isGroup), e.groupId));
+    await sendHelp(e, Boolean(e.isGroup), e.groupId);
     return true;
   }
 
