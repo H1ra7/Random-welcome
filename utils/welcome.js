@@ -123,6 +123,7 @@ export async function resolveGroupUser(e, groupId, userId, options = {}) {
     nickname: memberInfo?.card || memberInfo?.nick || `QQ${userId}`,
     groupName: groupInfo?.groupName || fallbackGroupName || "未知群聊",
     groupTitle: normalizeGroupTitle(memberInfo?.uniqueTitle),
+    memberLevel: Number(memberInfo?.level) > 0 ? Number(memberInfo.level) : null,
     memberCount: groupInfo?.memberCount ?? "?",
     memberInfo,
   };
@@ -156,18 +157,28 @@ async function getMemberCount(e, groupId) {
 
 /** 返回 segment.image 或 false */
 export async function buildWelcomeImage(e, groupId, userInfo = null, isManual = false) {
-  const userId = userInfo?.userId ?? e.userId;
-  const memberCount = isManual ? EMPTY_TEXT : (userInfo?.memberCount ?? await getMemberCount(e, groupId));
+  // 预览/主动发卡只传了群号：补一次成员信息，否则拿不到群名、群头衔和成员等级
+  let profile = userInfo;
+  if (!profile && groupId) {
+    profile = await resolveGroupUser(e, groupId, e.userId).catch((error) => {
+      logger.warn(`[random-welcome] 预览获取成员信息失败: ${String(error?.message || error)}`);
+      return null;
+    });
+  }
+
+  const userId = profile?.userId ?? e.userId;
+  const memberCount = isManual ? EMPTY_TEXT : (profile?.memberCount ?? await getMemberCount(e, groupId));
+  const memberLevelText = profile?.memberLevel != null ? `LV.${profile.memberLevel}` : "";
   const storyText = toPlainText(buildWelcomeMessageArray(e, groupId, false)) || "欢迎来到这里。";
 
   try {
     const image = await renderWelcomeCard({
       userId,
-      nickname: userInfo?.nickname || e.sender?.card || e.sender?.nick || `QQ${userId}`,
-      groupName: userInfo?.groupName || e.contact?.name || "未知群聊",
+      nickname: profile?.nickname || e.sender?.card || e.sender?.nick || `QQ${userId}`,
+      groupName: profile?.groupName || e.contact?.name || "未知群聊",
       memberCount,
       storyText,
-      groupTitle: userInfo?.groupTitle ?? normalizeGroupTitle(e.sender?.title),
+      groupTitle: profile?.groupTitle || memberLevelText || normalizeGroupTitle(e.sender?.title),
     });
     if (!image) {
       return false;
