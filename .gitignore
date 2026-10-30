@@ -1,5 +1,5 @@
 node_modules/
-config/groupConfig.json
+config/
 temp/html/
 npm-debug.log*
 pnpm-debug.log*

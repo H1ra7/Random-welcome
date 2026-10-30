@@ -86,6 +86,24 @@ render_mode: image
 - `#随机欢迎词列表`（仅机器人主人可用，查看全局已开启群）
 - `#更新欢迎词插件`（仅机器人主人，`git fetch` + `pull --ff-only` 拉取 `karin` 分支，成功后调用 Karin `restart()` 自动重启）
 
+## 配置目录
+
+`config/` 是运行期目录，不随仓库跟踪（已加入 `.gitignore`）。默认值在 `defSet/`，首次写入时自动创建 `config/setting.yaml`；升级插件不会覆盖你的群配置。
+
+### 从旧版升级（仅第一次）
+
+旧版本曾把 `config/setting.yaml` 纳入 git。第一次拉取新版本前，先在插件目录执行：
+
+```bash
+cp config/setting.yaml /tmp/random-welcome-setting.yaml
+git checkout -- config/setting.yaml
+git pull --ff-only
+mkdir -p config
+cp /tmp/random-welcome-setting.yaml config/setting.yaml
+```
+
+之后再升级就不需要这一步，`git pull` 也不会再因为 `config/setting.yaml` 的本地改动失败。
+
 ## 配置模型
 
 `setting.yaml`：
