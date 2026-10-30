@@ -29,14 +29,24 @@ random-welcome/
 
 ## 安装
 
-1. 将本目录放到 Karin 的 `plugins/random-welcome`。
+1. 将本仓库克隆为 `plugins/karin-plugin-random-welcome`。
+
+目录名必须以 `karin-plugin-` 开头，否则 Karin 会把它当作非插件目录静默跳过（不报错、无日志）。
+
+```bash
+cd <KARIN_ROOT>/plugins
+git clone -b karin https://github.com/H1ra7/Random-welcome.git karin-plugin-random-welcome
+```
+
 2. 在 Karin 根目录安装渲染器（图片模式需要）：
 
 ```bash
 pnpm add @karinjs/plugin-puppeteer -w
 ```
 
-3. 启动 Karin，确认日志出现 `[random-welcome] Karin 插件加载成功`。
+已在根依赖里时不要重复安装。
+
+3. 重启 Karin，确认日志出现 `[random-welcome] Karin 插件加载成功`。
 4. 如需图片卡片，把 `config/setting.yaml` 中的 `render_mode` 改为 `image`：
 
 ```yaml
@@ -102,3 +112,4 @@ render_mode: image
 - Redis 冷却使用 `node-karin` 导出的 `redis`。
 - 图片渲染使用 `render.render()`；HTML 模板沿用 art-template 语法。
 - `notice.groupMemberAdd`、群头衔、成员数依赖适配器能力；QQ 官方 Bot 适配器可能不提供入群通知。
+- 入群事件是「先到先得」：任一插件在该事件里 `return true` 就会中断后续插件。若同时装了其它入群通知插件（如 `karin-plugin-ling`），需让它们返回 `false` 放行，否则自动欢迎会时有时无。Karin 1.18.0 的 `accept` 不参与排序，插件顺序取决于注册时序。
