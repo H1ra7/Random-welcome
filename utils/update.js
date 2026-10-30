@@ -1,11 +1,12 @@
 /**
  * 插件自更新：#更新欢迎词插件（仅主人）。
- * 只做 git fetch/checkout/pull，不自动重启；失败一律回显 stderr。
+ * 拉取成功后调用 Karin 的 restart()：由父进程重启子进程，容器不需要重启。
+ * 失败一律回显 stderr；restart 返回失败时提示手动重启。
  */
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { logger } from "node-karin";
+import { logger, restart } from "node-karin";
 
 export const CMD_UPDATE_PLUGIN = "#更新欢迎词插件";
 const UPDATE_ONLY_TEXT = "仅机器人主人可执行插件更新。";
@@ -85,6 +86,17 @@ export async function handleUpdateCommand(e, msg) {
   }
 
   logger.mark(`[random-welcome] 插件已更新 ${before.stdout} -> ${afterVersion}`);
-  await e.reply(`更新完成：${before.stdout} → ${afterVersion}${detail}\n\n代码类改动需重启才生效，请在服务器执行 docker restart karin（或其他 Karin 重启方式）。`);
+  const reply = await e.reply(`更新完成：${before.stdout} → ${afterVersion}${detail}\n\n正在重启 Karin…`);
+  const messageId = reply?.messageId ?? e.messageId ?? "";
+
+  try {
+    const result = await restart(String(e.selfId), e.contact, messageId);
+    if (result?.status === "failed") {
+      await e.reply(`自动重启失败：${result.data || "未知原因"}\n请手动重启 Karin（docker restart karin 或你的启动方式）。`);
+    }
+  } catch (error) {
+    logger.error(`[random-welcome] 自动重启失败: ${String(error?.message || error)}`);
+    await e.reply(`自动重启失败：${String(error?.message || error)}\n请手动重启 Karin（docker restart karin 或你的启动方式）。`);
+  }
   return true;
 }

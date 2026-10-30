@@ -123,7 +123,7 @@ function getHelpNodes(isGroup, groupId, isMaster) {
     `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
   ];
   if (isMaster) {
-    nodes.push("【主人】\n- #更新欢迎词插件：拉取 karin 分支最新代码（需手动重启）");
+    nodes.push("【主人】\n- #更新欢迎词插件：拉取 karin 分支并自动重启 Karin");
   }
   if (groupRule) {
     nodes.push(
