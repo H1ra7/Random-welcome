@@ -1,3 +1,6 @@
+import path from "node:path";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { common, karin, logger, redis, segment } from "node-karin";
 import config from "../utils/config.js";
 import { renderWelcomeCard } from "../utils/renderer.js";
@@ -6,7 +9,7 @@ const PLUGIN_NAME = "专属入群欢迎词";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
 const EVENT_GROUP_MEMBER_ADD = "notice.groupMemberAdd";
 const PLUGIN_PRIORITY = 100;
-const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?)$/;
+const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件)$/;
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
 const CMD_DISABLE = "#关闭欢迎词";
@@ -23,6 +26,9 @@ const CMD_MENTION_DISABLE = "#欢迎词@关闭";
 const CMD_GROUP_SETTING = "#欢迎词设置";
 const CMD_ADMIN_DRAW = "#发迎新卡";
 const CMD_PRIVATE_DRAW = "#抽专属卡";
+const CMD_UPDATE_PLUGIN = "#更新欢迎词插件";
+const UPDATE_ONLY_TEXT = "仅机器人主人可执行插件更新。";
+const UPDATE_TIMEOUT_MS = 60_000;
 const ADMIN_ONLY_TEXT = "仅群管理员/群主/机器人主人可执行该命令。";
 const ADMIN_DRAW_USAGE_TEXT = "格式错误，请使用：#发迎新卡 @某人";
 const PRIVATE_DRAW_USAGE_TEXT = "格式错误，请使用：#抽专属卡 群号";
@@ -47,7 +53,7 @@ function getHelpNodes(isGroup, groupId) {
     `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）`,
     `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
     `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
-    `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
+    `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（仅私聊）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n- #更新欢迎词插件：拉取 karin 分支最新代码（仅主人，需手动重启）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
   ];
   if (groupRule) {
     nodes.push(
@@ -540,12 +546,93 @@ async function sendHelp(e, isGroup, groupId) {
   await sendForward(e, nodes, nodes[0]);
 }
 
+/**
+ * 插件根目录（本文件位于 <plugin>/apps/）。
+ * 用相对自身文件解析，避免依赖 Karin 的 cwd。
+ */
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function runGit(args) {
+  return new Promise((resolve) => {
+    execFile("git", ["-C", PLUGIN_ROOT, ...args], { timeout: UPDATE_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
+      resolve({
+        ok: !error,
+        stdout: String(stdout ?? "").trim(),
+        stderr: String(stderr ?? "").trim(),
+        error: error ? (error.code ?? "unknown") : null,
+        signal: error?.signal ?? null,
+      });
+    });
+  });
+}
+
+async function handleUpdateCommand(e, msg) {
+  if (msg !== CMD_UPDATE_PLUGIN) {
+    return false;
+  }
+  if (!e.isMaster) {
+    await e.reply(UPDATE_ONLY_TEXT);
+    return true;
+  }
+
+  const before = await runGit(["rev-parse", "--short", "HEAD"]);
+  if (!before.ok) {
+    const reason = before.stderr || (before.error === "ENOENT" ? "未找到 git 命令" : before.error);
+    await e.reply(`无法读取当前版本：${reason}\n插件路径：${PLUGIN_ROOT}`);
+    return true;
+  }
+
+  await e.reply(`正在更新…当前版本 ${before.stdout}`);
+
+  // 不要带 --depth：浅克隆会写入 .git/shallow，之后 ff-only 更新会被误判为分叉
+  const fetch = await runGit(["fetch", "origin", "karin"]);
+  if (!fetch.ok) {
+    await e.reply(`拉取失败：\n${(fetch.stderr || fetch.stdout || fetch.error).slice(0, 900)}`);
+    return true;
+  }
+
+  const checkout = await runGit(["checkout", "karin"]);
+  if (!checkout.ok) {
+    const stderr = checkout.stderr || checkout.error;
+    await e.reply(`切换 karin 分支失败：\n${String(stderr).slice(0, 900)}\n\n如有本地改动，请先处理后再试。`);
+    return true;
+  }
+
+  const pull = await runGit(["pull", "--ff-only", "origin", "karin"]);
+  if (!pull.ok) {
+    const detail = (pull.stderr || pull.stdout || pull.error).slice(0, 900);
+    await e.reply(`更新失败（可能有本地改动或分叉）：\n${detail}\n\n当前版本仍为 ${before.stdout}`);
+    return true;
+  }
+
+  const after = await runGit(["rev-parse", "--short", "HEAD"]);
+  const afterVersion = after.ok ? after.stdout : "unknown";
+  if (afterVersion === before.stdout) {
+    await e.reply(`已是最新版本：${before.stdout}\n无需重启。`);
+    return true;
+  }
+
+  let detail = "";
+  const log = await runGit(["log", "--oneline", `${before.stdout}..${afterVersion}`]);
+  if (log.ok && log.stdout) {
+    detail = `\n\n本次拉取：\n${log.stdout.split("\n").slice(0, 5).join("\n")}`;
+  }
+
+  logger.mark(`[random-welcome] 插件已更新 ${before.stdout} -> ${afterVersion}`);
+  await e.reply(`更新完成：${before.stdout} → ${afterVersion}${detail}\n\n代码类改动需重启才生效，请在服务器执行 docker restart karin（或其他 Karin 重启方式）。`);
+  return true;
+}
+
 async function handleCommand(e) {
   const msg = e.msg.trim();
   const isMaster = e.isMaster;
 
   if (msg === CMD_HELP || msg === CMD_HELP_ALIAS) {
     await sendHelp(e, Boolean(e.isGroup), e.groupId);
+    return true;
+  }
+
+  if (await handleUpdateCommand(e, msg)) {
     return true;
   }
 
