@@ -34,8 +34,9 @@ async function pickRandomBackgroundUrl() {
 }
 
 /**
- * 渲染欢迎卡片为 base64 图片。
+ * 渲染欢迎卡片为裸 base64 图片。
  * 需要 Karin 已安装并启用 @karinjs/plugin-puppeteer（或其它兼容渲染器）。
+ * 截图按 #container 的完整高度裁剪，不留多余空白。
  * @param {object} opts
  * @param {string|number} opts.userId   新入群者 QQ
  * @param {string} opts.nickname        新入群者昵称
@@ -67,12 +68,13 @@ export async function renderWelcomeCard(opts) {
     type: "png",
     omitBackground: true,
     quality: 100,
+    // 只截 #container（卡片自带内边距）：fullPage 会把视口多出的空白一起截进来
+    selector: "#container",
     setViewport: {
       width: 800,
-      height: 480,
+      height: 520,
       deviceScaleFactor: 1,
     },
-    fullPage: true,
     pageGotoParams: {
       waitUntil: "networkidle2",
     },

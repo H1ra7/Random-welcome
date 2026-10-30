@@ -4,13 +4,35 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Noto+Serif+SC:wght@400;600;700&display=swap');
 
-body, html {
+/* 截图按 #container 自身高度裁剪：不要给 html/body 加高度上限，否则超长文案会被裁掉 */
+html {
   margin: 0;
   padding: 0;
+  width: 800px;
+  /* 背景色画在 html 上：body 之外的区域不会被透明或空白覆盖 */
+  background: #0d0f12;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 800px;
   background: transparent;
   /* 使用衬线字体增强奇幻感 */
   font-family: "Noto Serif SC", "PingFang SC", "Microsoft YaHei", serif;
   color: #e2e8f0; /* Default text color in dark theme */
+}
+
+/* 字体本地化：不依赖 Google Fonts，离线/内网也能一次排版完成，避免二次回流截断 */
+@font-face {
+  font-family: "Cinzel";
+  font-display: block;
+  src: local("Times New Roman"), local("Georgia");
+}
+@font-face {
+  font-family: "Noto Serif SC";
+  font-display: block;
+  src: local("Microsoft YaHei"), local("PingFang SC"), local("Noto Sans CJK SC"), local("Source Han Sans SC");
 }
 
 #container {
@@ -197,6 +219,7 @@ body, html {
 
 .user-info {
   flex-grow: 1;
+  min-width: 0;
 }
 
 .title-row {
@@ -204,10 +227,15 @@ body, html {
   align-items: flex-end;
   gap: 16px;
   margin-bottom: 8px;
+  min-width: 0;
 }
 
 .nickname {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 36px;
   font-weight: 700;
   /* 金色金属质感文字 */
@@ -219,6 +247,7 @@ body, html {
 }
 
 .uid-tag {
+  flex-shrink: 0;
   background: rgba(255, 255, 255, 0.08);
   color: #94a3b8;
   padding: 4px 10px;
@@ -237,6 +266,7 @@ body, html {
   font-weight: 400;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   opacity: 0.9;
 }
@@ -250,6 +280,7 @@ body, html {
   color: #fca5a5; /* 微微泛红/金的颜色，突出群名 */
   font-weight: 600;
   text-shadow: 0 0 8px rgba(252, 165, 165, 0.3);
+  overflow-wrap: anywhere;
 }
 
 .guild-dot {
