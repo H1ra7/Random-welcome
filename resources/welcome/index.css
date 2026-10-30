@@ -23,18 +23,6 @@ body {
   color: #e2e8f0; /* Default text color in dark theme */
 }
 
-/* 字体本地化：不依赖 Google Fonts，离线/内网也能一次排版完成，避免二次回流截断 */
-@font-face {
-  font-family: "Cinzel";
-  font-display: block;
-  src: local("Times New Roman"), local("Georgia");
-}
-@font-face {
-  font-family: "Noto Serif SC";
-  font-display: block;
-  src: local("Microsoft YaHei"), local("PingFang SC"), local("Noto Sans CJK SC"), local("Source Han Sans SC");
-}
-
 #container {
   position: relative;
   width: 800px;
