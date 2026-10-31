@@ -119,7 +119,7 @@ function getHelpNodes(isGroup, groupId, isMaster) {
   const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
   const nodes = [
     `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
-    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭；私聊和群临时会话不受影响`,
+    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭，关闭时群内会提示去私聊；私聊和群临时会话不受影响`,
     `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #欢迎词预览开启 / #欢迎词预览关闭（全局，默认关闭）\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
     `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
     `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（私聊/群临时会话）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
@@ -375,7 +375,8 @@ async function handleCommand(e) {
 
   if (isPreviewCommand(msg)) {
     if (!config.setting.allow_group_preview) {
-      // 群内预览关闭：静默吞掉，避免“已关闭”本身刷屏
+      // 群内预览关闭：回一条短提示，引导到私聊/群临时会话
+      await e.reply("群内预览已关闭；请私聊机器人发送 #随机欢迎词 获取。");
       return true;
     }
     const groupRule = config.getGroupRule(e.groupId);

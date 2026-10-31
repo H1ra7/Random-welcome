@@ -115,7 +115,7 @@ cp /tmp/random-welcome-setting.yaml config/setting.yaml
 - `delay_min` / `delay_max`：欢迎词随机延迟秒数区间
 - `dedupe_window_sec`：欢迎去重窗口秒数
 - `render_mode`：`text` 或 `image`
-- `allow_group_preview`：群内预览总开关，默认 `false`。关闭时群里发预览命令静默无回复，包括管理员；私聊/群临时会话不受影响。可用 `#欢迎词预览开启/关闭` 修改。
+- `allow_group_preview`：群内预览总开关，默认 `false`。关闭时群里发预览命令会回一条“请私聊获取”的提示，不返回卡片/转发；包括管理员。私聊/群临时会话不受影响。可用 `#欢迎词预览开启/关闭` 修改。
 
 `lexicon.yaml`：
 
