@@ -16,7 +16,7 @@ import {
 const PLUGIN_NAME = "专属入群欢迎词";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
 const EVENT_GROUP_MEMBER_ADD = "notice.groupMemberAdd";
-const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#欢迎词预览(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件)$/;
+const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#欢迎词预览(?:全局)?(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件)$/;
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
 const CMD_DISABLE = "#关闭欢迎词";
@@ -32,6 +32,8 @@ const CMD_MENTION_ENABLE = "#欢迎词@开启";
 const CMD_MENTION_DISABLE = "#欢迎词@关闭";
 const CMD_PREVIEW_ENABLE = "#欢迎词预览开启";
 const CMD_PREVIEW_DISABLE = "#欢迎词预览关闭";
+const CMD_PREVIEW_GLOBAL_ENABLE = "#欢迎词预览全局开启";
+const CMD_PREVIEW_GLOBAL_DISABLE = "#欢迎词预览全局关闭";
 const CMD_GROUP_SETTING = "#欢迎词设置";
 const MAX_TEMPLATE_LENGTH = 300;
 const MAX_LEXICON_LOCATION_LENGTH = 30;
@@ -118,8 +120,8 @@ function getHelpNodes(isGroup, groupId, isMaster) {
   const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
   const nodes = [
     `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
-    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭，关闭时群内会提示去私聊；私聊和群临时会话不受影响`,
-    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #欢迎词预览开启 / #欢迎词预览关闭（全局，默认关闭）\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
+    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭；每个群可用 #欢迎词预览开启/关闭 单独覆盖（管理员/主人），未单独设置的群跟随全局默认值；关闭时群内会提示去私聊，私聊和群临时会话不受影响`,
+    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #欢迎词预览开启 / #欢迎词预览关闭（本群；管理员/主人）\n- #欢迎词预览全局开启 / #欢迎词预览全局关闭（仅主人，未单独设置的群跟随它）\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
     `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
     `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（私聊/群临时会话）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
   ];
@@ -270,21 +272,37 @@ async function handleCommand(e) {
     ? `已忽略（delay_min=${config.setting.delay_min} / delay_max=${config.setting.delay_max}，区间无效）`
     : `${delayMin}-${delayMax} 秒`;
     const renderText = renderMode() ? "image" : "text";
-    const groupPreviewText = config.setting.allow_group_preview ? "开启" : "关闭";
-    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n群内预览：${groupPreviewText}（全局）\n延迟：${delayText}\n去重窗口：${dedupeSec} 秒\n渲染：${renderText}`);
+    const previewEffectiveText = config.getGroupAllowPreview(e.groupId) ? "开启" : "关闭";
+    const previewSourceText = typeof groupRule.allow_preview === "boolean"
+      ? "本群单独设置"
+      : `跟随全局：${config.setting.allow_group_preview ? "开启" : "关闭"}`;
+    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n群内预览：${previewEffectiveText}（${previewSourceText}）\n延迟：${delayText}\n去重窗口：${dedupeSec} 秒\n渲染：${renderText}`);
     return true;
   }
 
   if (msg === CMD_PREVIEW_ENABLE || msg === CMD_PREVIEW_DISABLE) {
-    // 群内预览是 setting.yaml 里的全局开关，影响所有群，因此只允许机器人主人修改
-    if (!e.isMaster) {
-      await e.reply("群内预览是全局开关，只有机器人主人可以修改。");
+    // 本群覆盖：只影响当前群，群管理员即可修改
+    if (!isAdminOrMaster(e)) {
+      await e.reply(ADMIN_ONLY_TEXT);
       return true;
     }
     const enable = msg === CMD_PREVIEW_ENABLE;
+    const changed = config.setGroupAllowPreview(e.groupId, enable);
+    const stateText = enable ? "开启" : "关闭";
+    await e.reply(changed ? `本群群内预览已${stateText}。` : `本群群内预览已经是${stateText}状态。`);
+    return true;
+  }
+
+  if (msg === CMD_PREVIEW_GLOBAL_ENABLE || msg === CMD_PREVIEW_GLOBAL_DISABLE) {
+    // 全局默认值：影响所有未单独设置的群，因此只允许机器人主人修改
+    if (!e.isMaster) {
+      await e.reply("群内预览的全局默认值只有机器人主人可以修改。");
+      return true;
+    }
+    const enable = msg === CMD_PREVIEW_GLOBAL_ENABLE;
     const changed = config.setAllowGroupPreview(enable);
     const stateText = enable ? "开启" : "关闭";
-    await e.reply(changed ? `群内预览已${stateText}（全局生效）。` : `群内预览已经是${stateText}状态。`);
+    await e.reply(changed ? `群内预览全局默认值已${stateText}，未单独设置的群会跟随这个值。` : `群内预览全局默认值已经是${stateText}状态。`);
     return true;
   }
 
@@ -374,7 +392,7 @@ async function handleCommand(e) {
   }
 
   if (isPreviewCommand(msg)) {
-    if (!config.setting.allow_group_preview) {
+    if (!config.getGroupAllowPreview(e.groupId)) {
       // 群内预览关闭：回一条短提示，引导到私聊/群临时会话
       await e.reply("群内预览已关闭；请私聊机器人发送 #随机欢迎词 获取。");
       return true;

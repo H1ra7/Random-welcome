@@ -79,7 +79,8 @@ render_mode: image
 - `#发迎新卡 @某人`（仅群管理员/群主/机器人主人）
 - `#抽专属卡 群号`（私聊/群临时会话，每人每天 1 次）
 - `#欢迎词@开启` / `#欢迎词@关闭`
-- `#欢迎词预览开启` / `#欢迎词预览关闭`（全局开关；仅机器人主人可修改；默认关闭）
+- `#欢迎词预览开启` / `#欢迎词预览关闭`（本群；群管理员/群主/机器人主人；未单独设置时默认跟随全局）
+- `#欢迎词预览全局开启` / `#欢迎词预览全局关闭`（仅机器人主人；未单独设置的群跟随它）
 - `#设置欢迎词风格 风格名`
 - `#添加欢迎词 模板内容`
 - `#添加欢迎词条 地点|角色1,角色2|食物1,食物2`
@@ -112,10 +113,11 @@ cp /tmp/random-welcome-setting.yaml config/setting.yaml
 - `group_rules.<group_id>.enabled`：本群开关
 - `group_rules.<group_id>.profile`：本群风格
 - `group_rules.<group_id>.mention_new_member`：本群欢迎词是否 `@新人`
+- `group_rules.<group_id>.allow_preview`：本群群内预览覆盖（可选布尔）。优先级：本群显式值 > `allow_group_preview` 全局默认值；字段缺省即跟随全局
 - `delay_min` / `delay_max`：欢迎词随机延迟秒数区间
 - `dedupe_window_sec`：欢迎去重窗口秒数
 - `render_mode`：`text` 或 `image`
-- `allow_group_preview`：群内预览总开关，默认 `false`。关闭时群里发预览命令会回一条“请私聊获取”的提示，不返回卡片/转发；包括管理员。私聊/群临时会话不受影响。该开关是全局的，仅机器人主人可用 `#欢迎词预览开启/关闭` 修改。
+- `allow_group_preview`：群内预览的**全局默认值**，默认 `false`。它只作为「未单独设置的群」的默认值：关闭时群里发预览命令会回一条“请私聊获取”的提示，不返回卡片/转发；包括管理员。单个群可用 `#欢迎词预览开启/关闭` 覆盖（群管理员/群主/机器人主人），覆盖值写入 `group_rules.<群号>.allow_preview`，删掉该字段即恢复跟随全局；全局默认值仅机器人主人可用 `#欢迎词预览全局开启/关闭` 修改。优先级：`group_rules.<群号>.allow_preview` > `allow_group_preview`。私聊/群临时会话不受影响。
 
 `lexicon.yaml`：
 

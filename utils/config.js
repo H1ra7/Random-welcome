@@ -97,11 +97,16 @@ class Config {
     const key = toGroupKey(id);
     const rule = setting.group_rules[key];
     if (rule) {
-      return {
+      const normalized = {
         enabled: rule.enabled,
         profile: rule.profile || setting.default_profile,
         mention_new_member: typeof rule.mention_new_member === "boolean" ? rule.mention_new_member : setting.mention_new_member
       };
+      // 仅透传群内的显式布尔覆盖；缺省不写字段，调用方据此回落到全局默认值
+      if (typeof rule.allow_preview === "boolean") {
+        normalized.allow_preview = rule.allow_preview;
+      }
+      return normalized;
     }
     return { enabled: false, profile: setting.default_profile, mention_new_member: setting.mention_new_member };
   }
@@ -116,6 +121,18 @@ class Config {
 
   isGroupEnabled(groupId) {
     return this.getGroupRule(groupId).enabled;
+  }
+
+  /**
+   * 群内预览生效值：优先取本群显式覆盖 group_rules.<群号>.allow_preview，
+   * 未单独设置（字段缺省）时回落到全局默认值 setting.allow_group_preview。
+   */
+  getGroupAllowPreview(groupId) {
+    const rule = this.getGroupRule(groupId);
+    if (typeof rule.allow_preview === "boolean") {
+      return rule.allow_preview;
+    }
+    return Boolean(this.setting.allow_group_preview);
   }
 
   listProfiles() {
@@ -241,6 +258,33 @@ class Config {
       return false;
     }
     setting.allow_group_preview = next;
+    this.saveConfig(SETTING_APP, setting);
+    return true;
+  }
+
+  /** 写入本群预览覆盖：只影响该群，不影响全局默认值。群条目不存在时按默认值补一条。 */
+  setGroupAllowPreview(groupId, enable) {
+    const id = toGroupId(groupId);
+    if (!Number.isFinite(id) || id <= 0) {
+      return false;
+    }
+
+    const setting = this.getWritableSetting();
+    const key = toGroupKey(id);
+    if (!setting.group_rules[key]) {
+      setting.group_rules[key] = {
+        enabled: false,
+        profile: setting.default_profile,
+        mention_new_member: setting.mention_new_member,
+      };
+    }
+
+    const next = Boolean(enable);
+    if (setting.group_rules[key].allow_preview === next) {
+      return false;
+    }
+
+    setting.group_rules[key].allow_preview = next;
     this.saveConfig(SETTING_APP, setting);
     return true;
   }
@@ -399,11 +443,16 @@ class Config {
       const profile = typeof rawRule?.profile === "string" && rawRule.profile.trim() !== ""
         ? rawRule.profile.trim()
         : defaultProfile;
-      groupRules[key] = {
+      const rule = {
         enabled: Boolean(rawRule?.enabled),
         profile,
         mention_new_member: typeof rawRule?.mention_new_member === "boolean" ? rawRule.mention_new_member : mentionNewMember,
       };
+      // allow_preview 缺省表示「跟随全局」：不写入该字段，保持 undefined，避免把「未设置」误判成显式覆盖
+      if (typeof rawRule?.allow_preview === "boolean") {
+        rule.allow_preview = rawRule.allow_preview;
+      }
+      groupRules[key] = rule;
     }
 
     for (const id of legacyGroups) {
