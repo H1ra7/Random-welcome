@@ -17,7 +17,6 @@ const DEFAULT_PROFILE = "default";
 const DEFAULT_MENTION_NEW_MEMBER = true;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
 const DEFAULT_RENDER_MODE = "text";
-const DEFAULT_ALLOW_GROUP_PREVIEW = false;
 const VALID_RENDER_MODES = new Set(["text", "image"]);
 const YAML_EVENT_CHANGE = "change";
 const YAML_EVENT_RENAME = "rename";
@@ -102,7 +101,7 @@ class Config {
         profile: rule.profile || setting.default_profile,
         mention_new_member: typeof rule.mention_new_member === "boolean" ? rule.mention_new_member : setting.mention_new_member
       };
-      // 仅透传群内的显式布尔覆盖；缺省不写字段，调用方据此回落到全局默认值
+      // 仅透传群内的显式布尔覆盖；缺省不写字段，表示该群未开启预览
       if (typeof rule.allow_preview === "boolean") {
         normalized.allow_preview = rule.allow_preview;
       }
@@ -124,15 +123,28 @@ class Config {
   }
 
   /**
-   * 群内预览生效值：优先取本群显式覆盖 group_rules.<群号>.allow_preview，
-   * 未单独设置（字段缺省）时回落到全局默认值 setting.allow_group_preview。
+   * 群内预览是否开启：严格看本群覆盖 group_rules.<群号>.allow_preview === true。
+   * 字段缺省、群条目不存在、群号非法，一律视为关闭。
    */
-  getGroupAllowPreview(groupId) {
-    const rule = this.getGroupRule(groupId);
-    if (typeof rule.allow_preview === "boolean") {
-      return rule.allow_preview;
+  isGroupPreviewEnabled(groupId) {
+    const id = toGroupId(groupId);
+    if (!Number.isFinite(id) || id <= 0) {
+      return false;
     }
-    return Boolean(this.setting.allow_group_preview);
+    const rule = this.setting.group_rules[toGroupKey(id)];
+    return rule?.allow_preview === true;
+  }
+
+  /**
+   * 列出所有已配置群的群内预览状态（只读），按群号升序：[{ id, effective }]。
+   */
+  listGroupPreviewStates() {
+    const setting = this.setting;
+    return Object.keys(setting.group_rules)
+      .map((key) => Number(key))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .sort((a, b) => a - b)
+      .map((id) => ({ id, effective: this.isGroupPreviewEnabled(id) }));
   }
 
   listProfiles() {
@@ -251,18 +263,7 @@ class Config {
     return true;
   }
 
-  setAllowGroupPreview(enable) {
-    const next = Boolean(enable);
-    const setting = this.getWritableSetting();
-    if (setting.allow_group_preview === next) {
-      return false;
-    }
-    setting.allow_group_preview = next;
-    this.saveConfig(SETTING_APP, setting);
-    return true;
-  }
-
-  /** 写入本群预览覆盖：只影响该群，不影响全局默认值。群条目不存在时按默认值补一条。 */
+  /** 写入本群预览开关：只影响该群。群条目不存在时补一条（默认关闭）。 */
   setGroupAllowPreview(groupId, enable) {
     const id = toGroupId(groupId);
     if (!Number.isFinite(id) || id <= 0) {
@@ -409,9 +410,6 @@ class Config {
     if (!VALID_RENDER_MODES.has(setting.render_mode)) {
       setting.render_mode = DEFAULT_RENDER_MODE;
     }
-    if (typeof setting.allow_group_preview !== "boolean") {
-      setting.allow_group_preview = DEFAULT_ALLOW_GROUP_PREVIEW;
-    }
     return setting;
   }
 
@@ -427,9 +425,6 @@ class Config {
       ? Number(source.dedupe_window_sec)
       : DEFAULT_DEDUPE_WINDOW_SEC;
     const renderMode = VALID_RENDER_MODES.has(source.render_mode) ? source.render_mode : DEFAULT_RENDER_MODE;
-    const allowGroupPreview = typeof source.allow_group_preview === "boolean"
-      ? source.allow_group_preview
-      : DEFAULT_ALLOW_GROUP_PREVIEW;
     const legacyGroups = Array.isArray(source.groups) ? source.groups.map((item) => Number(item)).filter((id) => Number.isFinite(id) && id > 0) : [];
     const groupRules = {};
     const rawRules = source.group_rules && typeof source.group_rules === "object" ? source.group_rules : {};
@@ -448,7 +443,7 @@ class Config {
         profile,
         mention_new_member: typeof rawRule?.mention_new_member === "boolean" ? rawRule.mention_new_member : mentionNewMember,
       };
-      // allow_preview 缺省表示「跟随全局」：不写入该字段，保持 undefined，避免把「未设置」误判成显式覆盖
+      // allow_preview 缺省表示该群未开启预览：不写入该字段，保持 undefined，避免误判成显式开启
       if (typeof rawRule?.allow_preview === "boolean") {
         rule.allow_preview = rawRule.allow_preview;
       }
@@ -462,16 +457,18 @@ class Config {
       }
     }
 
-    return {
+    const normalized = {
       ...source,
       default_profile: defaultProfile,
       mention_new_member: mentionNewMember,
       dedupe_window_sec: dedupeWindowSec,
       render_mode: renderMode,
-      allow_group_preview: allowGroupPreview,
       group_rules: groupRules,
       groups: this.toLegacyGroups(groupRules),
     };
+    // 老 runtime yaml 可能残留 allow_group_preview：显式删除，避免保存时被写回
+    delete normalized.allow_group_preview;
+    return normalized;
   }
 
   toLegacyGroups(groupRules) {

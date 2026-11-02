@@ -1,10 +1,6 @@
 default_profile: default
 # 渲染模式: text=纯文本, image=图片卡片(需要 @karinjs/plugin-puppeteer)
 render_mode: text
-# 群内预览的全局默认值: false=群里静默禁用, true=允许任何人预览（私聊/群临时会话不受影响）
-# 这是「未单独设置群的默认值」：单个群可用 #欢迎词预览开启 / #欢迎词预览关闭 覆盖，
-# 覆盖值写入 group_rules.<群号>.allow_preview；删掉该字段即恢复跟随此全局默认值
-allow_group_preview: false
 group_rules: {}
 # groups 是从 group_rules 派生的兼容镜像字段（保存时会被覆盖）；真正生效的是 group_rules.<群号>.enabled，仅在 group_rules 缺少该群条目时被当作一次性迁移源读取，请勿手改
 groups: []

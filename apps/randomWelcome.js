@@ -16,7 +16,9 @@ import {
 const PLUGIN_NAME = "专属入群欢迎词";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
 const EVENT_GROUP_MEMBER_ADD = "notice.groupMemberAdd";
-const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#欢迎词预览(?:全局)?(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件)$/;
+// 末尾的纯编号分支（如「2」「1 3」「1,3」）用于私聊批量管理回复；因为会匹配到所有纯数字消息，
+// handleCommand 必须最先甄别并放行不属于本插件会话的编号消息（见 handlePreviewNumberReply）。
+const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#欢迎词预览(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件|[0-9]+(?:[\s,，、]+[0-9]+)*)$/;
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
 const CMD_DISABLE = "#关闭欢迎词";
@@ -32,14 +34,17 @@ const CMD_MENTION_ENABLE = "#欢迎词@开启";
 const CMD_MENTION_DISABLE = "#欢迎词@关闭";
 const CMD_PREVIEW_ENABLE = "#欢迎词预览开启";
 const CMD_PREVIEW_DISABLE = "#欢迎词预览关闭";
-const CMD_PREVIEW_GLOBAL_ENABLE = "#欢迎词预览全局开启";
-const CMD_PREVIEW_GLOBAL_DISABLE = "#欢迎词预览全局关闭";
 const CMD_GROUP_SETTING = "#欢迎词设置";
 const MAX_TEMPLATE_LENGTH = 300;
 const MAX_LEXICON_LOCATION_LENGTH = 30;
 const MAX_LEXICON_ITEM_LENGTH = 30;
 const DEFAULT_DEDUPE_WINDOW_SEC = 30;
+const PREVIEW_SESSION_TTL_MS = 120 * 1000;
+const PREVIEW_SESSION_SWEEP_MS = 10 * 60 * 1000;
+const PREVIEW_NUMBER_RE = /^[0-9]+(?:[\s,，、]+[0-9]+)*$/;
 const welcomeDedupMap = new Map();
+// 私聊批量管理会话：key = `${selfId}:${userId}`，值为 { action, entries, expiresAt }
+const previewSessions = new Map();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -120,8 +125,8 @@ function getHelpNodes(isGroup, groupId, isMaster) {
   const groupRule = isGroup && groupId ? config.getGroupRule(groupId) : null;
   const nodes = [
     `【功能】\n- 新人入群时自动发送随机欢迎词（地点+身份+美食）\n- 支持按群设置开关、风格、@新人\n- 支持入群事件去重，避免重复欢迎`,
-    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭；每个群可用 #欢迎词预览开启/关闭 单独覆盖（管理员/主人），未单独设置的群跟随全局默认值；关闭时群内会提示去私聊，私聊和群临时会话不受影响`,
-    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #欢迎词预览开启 / #欢迎词预览关闭（本群；管理员/主人）\n- #欢迎词预览全局开启 / #欢迎词预览全局关闭（仅主人，未单独设置的群跟随它）\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
+    `【预览】\n- #随机欢迎词 / #欢迎词\n- #随机欢迎词测试 / #欢迎词测试\n- #随机欢迎词 5（数字=条数，合并转发，上限 100）\n- 群内预览默认关闭；每个群可用 #欢迎词预览开启/关闭 单独设置（管理员/主人）；关闭时群内会提示去私聊，私聊和群临时会话不受影响\n- 私聊批量管理（仅主人）：#欢迎词预览开启 / #欢迎词预览关闭 列出对应状态的群，回复编号（可多选，空格/逗号分隔，0 = 全部，120 秒内有效）`,
+    `【群管理】\n- #欢迎词设置：查看本群配置\n- #开启欢迎词 / #开启随机欢迎词\n- #关闭欢迎词 / #关闭随机欢迎词\n- #欢迎词@开启 / #欢迎词@关闭\n- #欢迎词预览开启 / #欢迎词预览关闭（本群；管理员/主人；私聊里由主人使用则进入批量管理模式）\n- #设置欢迎词风格 风格名\n- #欢迎词风格列表`,
     `【词库维护】\n- #添加欢迎词 模板内容\n  占位符：{location} {role} {food} {bot_name} {at_user}\n- #添加欢迎词条 地点|角色1,角色2|食物1,食物2\n  写入 config/ 下 YAML，立即生效`,
     `【其它】\n- #发迎新卡 @某人：管理员手动发卡（仅群聊）\n- #抽专属卡 群号：每人每天 1 次（私聊/群临时会话）\n- #随机欢迎词列表：查看已开启的群（仅主人）\n\n权限：管理指令需 群管理员 / 群主 / 机器人主人`,
   ];
@@ -192,9 +197,144 @@ async function sendHelp(e, isGroup, groupId) {
   await sendForward(e, nodes, nodes[0]);
 }
 
+function previewSessionKey(e) {
+  return `${e.selfId}:${e.userId}`;
+}
+
+/** 清理过期太久的会话，避免内存无限增长（过期后仍保留一段时间，用于「列表已过期」提示） */
+function prunePreviewSessions(now = Date.now()) {
+  for (const [key, session] of previewSessions) {
+    if (now - session.expiresAt > PREVIEW_SESSION_SWEEP_MS) {
+      previewSessions.delete(key);
+    }
+  }
+}
+
+/** 生成带编号的群列表文案；action 表示「回复编号后要执行的动作」 */
+function formatPreviewList(ids, action) {
+  const actionText = action === "enable" ? "开启" : "关闭";
+  const currentStateText = action === "enable" ? "关闭" : "开启";
+  const lines = [`当前群内预览为「${currentStateText}」的群（${ids.length} 个）：`];
+  ids.forEach((id, index) => {
+    lines.push(`${index + 1}. ${id}`);
+  });
+  lines.push(`回复编号${actionText}（可多个，用空格/逗号分隔；0 = 全部）；120 秒内有效`);
+  return lines.join("\n");
+}
+
+/** 私聊批量管理入口：列出符合目标状态的群并登记会话快照 */
+async function handlePreviewBatchList(e, action) {
+  const entries = config
+    .listGroupPreviewStates()
+    .filter((state) => state.effective === (action === "disable"))
+    .map((state) => state.id);
+  const key = previewSessionKey(e);
+  if (entries.length === 0) {
+    previewSessions.delete(key);
+    await e.reply(action === "disable" ? "当前没有群内预览处于开启状态的群。" : "所有群都已经是开启状态。");
+    return;
+  }
+  prunePreviewSessions();
+  previewSessions.set(key, { action, entries, expiresAt: Date.now() + PREVIEW_SESSION_TTL_MS });
+  await e.reply(formatPreviewList(entries, action));
+}
+
+/**
+ * 处理纯编号回复（单个/多个，0 = 全部）。
+ * 仅「私聊 + 机器人主人 + 存在未过期会话」时才消费；其余情况一律返回 false 放行，
+ * 避免本插件抢占其它插件的纯数字消息。已过期会话保留为「墓碑」，仅主人私聊时提示一次。
+ */
+async function handlePreviewNumberReply(e, msg) {
+  if (e.isGroup) {
+    return false;
+  }
+  const key = previewSessionKey(e);
+  const session = previewSessions.get(key);
+  if (!session) {
+    return false;
+  }
+  if (Date.now() > session.expiresAt) {
+    if (e.isMaster) {
+      previewSessions.delete(key);
+      const actionText = session.action === "enable" ? "开启" : "关闭";
+      await e.reply(`列表已过期，重新发送 #欢迎词预览${actionText} 获取。`);
+      return true;
+    }
+    return false;
+  }
+  if (!e.isMaster) {
+    return false;
+  }
+
+  const tokens = msg.split(/[\s,，、]+/).filter(Boolean);
+  const selected = new Set();
+  const invalid = new Set();
+  let wantAll = false;
+  for (const token of tokens) {
+    if (!/^[0-9]+$/.test(token)) {
+      invalid.add(token);
+      continue;
+    }
+    const number = Number(token);
+    if (number === 0) {
+      wantAll = true;
+    } else if (number >= 1 && number <= session.entries.length) {
+      selected.add(number);
+    } else {
+      invalid.add(token);
+    }
+  }
+
+  const selectedIndices = wantAll
+    ? session.entries.map((_, index) => index + 1)
+    : [...selected].sort((a, b) => a - b);
+  const selectedSet = new Set(selectedIndices);
+
+  const actionEnable = session.action === "enable";
+  const changedEntries = [];
+  const remainingEntries = [];
+  session.entries.forEach((id, index) => {
+    if (selectedSet.has(index + 1)) {
+      config.setGroupAllowPreview(id, actionEnable);
+      changedEntries.push(id);
+    } else {
+      remainingEntries.push(id);
+    }
+  });
+
+  const parts = [];
+  if (invalid.size > 0) {
+    parts.push(`忽略无效编号：${[...invalid].join("、")}`);
+  }
+  if (changedEntries.length > 0) {
+    const rows = changedEntries.map((id) => `- ${id}`);
+    parts.push(`${actionEnable ? "已开启" : "已关闭"}：\n${rows.join("\n")}`);
+  } else {
+    parts.push("没有匹配到可执行的编号，未做修改。");
+  }
+
+  if (remainingEntries.length > 0) {
+    session.entries = remainingEntries;
+    session.expiresAt = Date.now() + PREVIEW_SESSION_TTL_MS;
+    parts.push(formatPreviewList(remainingEntries, session.action));
+  } else {
+    previewSessions.delete(key);
+    parts.push("列表已空。");
+  }
+
+  await e.reply(parts.join("\n\n"));
+  return true;
+}
+
 async function handleCommand(e) {
   const msg = e.msg.trim();
   const isMaster = e.isMaster;
+
+  // 纯编号消息（如「2」「1 3」「1,3」）：必须最先处理。
+  // 只有「私聊 + 主人 + 存在未过期会话」才消费，其余一律 return false 放行，避免抢占其它插件的数字消息。
+  if (PREVIEW_NUMBER_RE.test(msg)) {
+    return await handlePreviewNumberReply(e, msg);
+  }
 
   if (msg === CMD_HELP || msg === CMD_HELP_ALIAS) {
     await sendHelp(e, Boolean(e.isGroup), e.groupId);
@@ -238,6 +378,16 @@ async function handleCommand(e) {
     return true;
   }
 
+  // 私聊里的批量管理：列出群号，回复编号开关（仅机器人主人）。群聊里的同名命令仍是「本群覆盖」，见下方。
+  if ((msg === CMD_PREVIEW_ENABLE || msg === CMD_PREVIEW_DISABLE) && (!e.isGroup || !e.groupId)) {
+    if (!isMaster) {
+      await e.reply("只有机器人主人才能使用私聊批量管理群内预览。");
+      return true;
+    }
+    await handlePreviewBatchList(e, msg === CMD_PREVIEW_ENABLE ? "enable" : "disable");
+    return true;
+  }
+
   if (!e.isGroup || !e.groupId) {
     if (
       isEnableCommand(msg) ||
@@ -272,11 +422,8 @@ async function handleCommand(e) {
     ? `已忽略（delay_min=${config.setting.delay_min} / delay_max=${config.setting.delay_max}，区间无效）`
     : `${delayMin}-${delayMax} 秒`;
     const renderText = renderMode() ? "image" : "text";
-    const previewEffectiveText = config.getGroupAllowPreview(e.groupId) ? "开启" : "关闭";
-    const previewSourceText = typeof groupRule.allow_preview === "boolean"
-      ? "本群单独设置"
-      : `跟随全局：${config.setting.allow_group_preview ? "开启" : "关闭"}`;
-    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n群内预览：${previewEffectiveText}（${previewSourceText}）\n延迟：${delayText}\n去重窗口：${dedupeSec} 秒\n渲染：${renderText}`);
+    const previewText = config.isGroupPreviewEnabled(e.groupId) ? "开启" : "关闭";
+    await e.reply(`本群欢迎词设置：\n开关：${enabledText}\n风格：${groupRule.profile}\n@新人：${mentionText}\n群内预览：${previewText}\n延迟：${delayText}\n去重窗口：${dedupeSec} 秒\n渲染：${renderText}`);
     return true;
   }
 
@@ -290,19 +437,6 @@ async function handleCommand(e) {
     const changed = config.setGroupAllowPreview(e.groupId, enable);
     const stateText = enable ? "开启" : "关闭";
     await e.reply(changed ? `本群群内预览已${stateText}。` : `本群群内预览已经是${stateText}状态。`);
-    return true;
-  }
-
-  if (msg === CMD_PREVIEW_GLOBAL_ENABLE || msg === CMD_PREVIEW_GLOBAL_DISABLE) {
-    // 全局默认值：影响所有未单独设置的群，因此只允许机器人主人修改
-    if (!e.isMaster) {
-      await e.reply("群内预览的全局默认值只有机器人主人可以修改。");
-      return true;
-    }
-    const enable = msg === CMD_PREVIEW_GLOBAL_ENABLE;
-    const changed = config.setAllowGroupPreview(enable);
-    const stateText = enable ? "开启" : "关闭";
-    await e.reply(changed ? `群内预览全局默认值已${stateText}，未单独设置的群会跟随这个值。` : `群内预览全局默认值已经是${stateText}状态。`);
     return true;
   }
 
@@ -392,7 +526,7 @@ async function handleCommand(e) {
   }
 
   if (isPreviewCommand(msg)) {
-    if (!config.getGroupAllowPreview(e.groupId)) {
+    if (!config.isGroupPreviewEnabled(e.groupId)) {
       // 群内预览关闭：回一条短提示，引导到私聊/群临时会话
       await e.reply("群内预览已关闭；请私聊机器人发送 #随机欢迎词 获取。");
       return true;
