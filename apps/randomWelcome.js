@@ -16,7 +16,6 @@ import {
 const PLUGIN_NAME = "专属入群欢迎词";
 const PREVIEW_PLUGIN_NAME = "小说群欢迎词配置与预览";
 const EVENT_GROUP_MEMBER_ADD = "notice.groupMemberAdd";
-const PLUGIN_PRIORITY = 100;
 const COMMAND_RULE_REG = /^(?:#(?:随机)?欢迎词帮助|#随机欢迎词列表|#欢迎词风格列表|#欢迎词设置|#欢迎词@(?:开启|关闭)|#欢迎词预览(?:开启|关闭)|#设置欢迎词风格(?:\s+.+)?|#添加欢迎词条(?:\s+.+)?|#添加欢迎词(?:\s+.+)?|#(?:开启|关闭)(?:随机)?欢迎词|#(?:随机欢迎词|欢迎词)(?:测试)?(?:\s*\d+)?|#发迎新卡(?:\s+.+)?|#抽专属卡(?:\s+\d+)?|#更新欢迎词插件)$/;
 const CMD_ENABLE = "#开启欢迎词";
 const CMD_ENABLE_RANDOM = "#开启随机欢迎词";
@@ -277,8 +276,9 @@ async function handleCommand(e) {
   }
 
   if (msg === CMD_PREVIEW_ENABLE || msg === CMD_PREVIEW_DISABLE) {
-    if (!isAdminOrMaster(e)) {
-      await e.reply(ADMIN_ONLY_TEXT);
+    // 群内预览是 setting.yaml 里的全局开关，影响所有群，因此只允许机器人主人修改
+    if (!e.isMaster) {
+      await e.reply("群内预览是全局开关，只有机器人主人可以修改。");
       return true;
     }
     const enable = msg === CMD_PREVIEW_ENABLE;
@@ -432,7 +432,6 @@ export const randomWelcome = karin.accept(
   },
   {
     name: PLUGIN_NAME,
-    priority: PLUGIN_PRIORITY,
   },
 );
 
@@ -441,7 +440,6 @@ export const randomWelcomeCommand = karin.command(
   handleCommand,
   {
     name: PREVIEW_PLUGIN_NAME,
-    priority: PLUGIN_PRIORITY,
     permission: "all",
     log: false,
   },

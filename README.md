@@ -79,7 +79,7 @@ render_mode: image
 - `#发迎新卡 @某人`（仅群管理员/群主/机器人主人）
 - `#抽专属卡 群号`（私聊/群临时会话，每人每天 1 次）
 - `#欢迎词@开启` / `#欢迎词@关闭`
-- `#欢迎词预览开启` / `#欢迎词预览关闭`（全局；群管理员/群主/机器人主人；默认关闭）
+- `#欢迎词预览开启` / `#欢迎词预览关闭`（全局开关；仅机器人主人可修改；默认关闭）
 - `#设置欢迎词风格 风格名`
 - `#添加欢迎词 模板内容`
 - `#添加欢迎词条 地点|角色1,角色2|食物1,食物2`
@@ -115,7 +115,7 @@ cp /tmp/random-welcome-setting.yaml config/setting.yaml
 - `delay_min` / `delay_max`：欢迎词随机延迟秒数区间
 - `dedupe_window_sec`：欢迎去重窗口秒数
 - `render_mode`：`text` 或 `image`
-- `allow_group_preview`：群内预览总开关，默认 `false`。关闭时群里发预览命令会回一条“请私聊获取”的提示，不返回卡片/转发；包括管理员。私聊/群临时会话不受影响。可用 `#欢迎词预览开启/关闭` 修改。
+- `allow_group_preview`：群内预览总开关，默认 `false`。关闭时群里发预览命令会回一条“请私聊获取”的提示，不返回卡片/转发；包括管理员。私聊/群临时会话不受影响。该开关是全局的，仅机器人主人可用 `#欢迎词预览开启/关闭` 修改。
 
 `lexicon.yaml`：
 
@@ -135,3 +135,9 @@ cp /tmp/random-welcome-setting.yaml config/setting.yaml
 - `notice.groupMemberAdd`、群头衔、成员数依赖适配器能力；QQ 官方 Bot 适配器可能不提供入群通知。
 - `#抽专属卡` 同时接受好友私聊和群临时会话。群临时会话在 OneBot 下改用 `send_private_msg` 并携带 `group_id`，因为 Karin 1.18.0 的 `e.reply` 对 groupTemp 只传 `user_id`，NapCat 会拒收；其它适配器回退标准 `e.reply`。
 - 入群事件是「先到先得」：任一插件在该事件里 `return true` 就会中断后续插件。若同时装了其它入群通知插件（如 `karin-plugin-ling`），需让它们返回 `false` 放行，否则自动欢迎会时有时无。Karin 1.18.0 的 `accept` 不参与排序，插件顺序取决于注册时序。
+
+## 命令与事件的执行顺序
+
+Karin 1.18.0 里 `karin.command` / `karin.accept` 选项上的 `priority` 并不参与排序（框架的 `pkgSort()` 按 `rank` 字段排序，而写入的是 `priority`，排序成了空操作），实际执行顺序取决于插件加载顺序。本插件因此不再声明 `priority`，命令与事件处理器只保留 `name` / `permission` / `log` 等选项。
+
+如果同时装了 `karin-plugin-ling`，它的 `notice.groupMemberAdd` 处理器末尾会无条件 `return true`，中断后续插件，本插件的入群欢迎词就会「时灵时不灵」（重启后加载顺序可能变化）。要彻底解决需要改 ling 让它放行，或按群用 Karin 的 enable/disable 控制插件启停。

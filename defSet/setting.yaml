@@ -4,6 +4,7 @@ render_mode: text
 # 群内预览开关: false=群里静默禁用, true=允许任何人预览（私聊/群临时会话不受影响）
 allow_group_preview: false
 group_rules: {}
+# groups 是从 group_rules 派生的兼容镜像字段（保存时会被覆盖）；真正生效的是 group_rules.<群号>.enabled，仅在 group_rules 缺少该群条目时被当作一次性迁移源读取，请勿手改
 groups: []
 delay_min: 1
 delay_max: 3

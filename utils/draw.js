@@ -245,14 +245,24 @@ export async function handlePrivateDraw(e, msg) {
     replyPayload = [`来自「${userInfo.groupName}」的专属欢迎词：`, ...buildWelcomeMessageArray(e, groupId, false)];
   }
 
+  // 先发送、再写冷却：反过来（先写冷却后发送）时，一旦发送失败用户当天这次就白抽了，
+  // 再发只会收到「今天已经抽过啦」，而卡片根本没到。发送失败时不消耗次数，允许重试。
   try {
-    await redisSetWithExpire(cdKey, groupId, getSecondsUntilDayEnd());
+    await reply(replyPayload);
   } catch (error) {
-    logger.error(`[random-welcome] 写入私聊抽卡冷却失败: ${String(error?.message || error)}`);
-    await reply("抽卡冷却服务暂不可用，请稍后再试。");
+    logger.error(`[random-welcome] #抽专属卡 发送失败: ${String(error?.message || error)}`);
+    await reply("抽卡图片发送失败，本次不计入每日次数，可以再试一次。").catch(() => {});
     return true;
   }
 
-  await reply(replyPayload);
+  try {
+    await redisSetWithExpire(cdKey, groupId, getSecondsUntilDayEnd());
+  } catch (error) {
+    // 卡片已经发出去了，这里不再说「请稍后再试」误导用户，只如实说明冷却没记上
+    logger.error(`[random-welcome] 写入私聊抽卡冷却失败: ${String(error?.message || error)}`);
+    await reply("抽卡已完成，但冷却记录失败（本次不计入每日一次）。").catch(() => {});
+    return true;
+  }
+
   return true;
 }

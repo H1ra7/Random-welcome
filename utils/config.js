@@ -326,9 +326,28 @@ class Config {
     });
   }
 
+  // 用「同目录临时文件 + fsync + rename」做原子替换：直接 writeFileSync 覆盖目标文件时，
+  // 进程中断/断电可能只落下半份 YAML；下次启动读到损坏文件会静默回落默认值（群列表变空、
+  // 所有群都不发欢迎词），而 git status 依旧干净，极难排查。rename 在同一文件系统内是原子操作，
+  // 读到的要么是旧内容、要么是新内容，不会出现半份文件，因此临时文件必须与目标同目录。
   saveConfig(app, data) {
     let file = path.join(configPath, `${app}.yaml`);
-    fs.writeFileSync(file, yaml.stringify(data), "utf8");
+    const tmpFile = path.join(configPath, `.${app}.yaml.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`);
+    let fd;
+    try {
+      fd = fs.openSync(tmpFile, "w");
+      fs.writeFileSync(fd, yaml.stringify(data), "utf8");
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(tmpFile, file);
+    } catch (error) {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd); } catch { /* 关闭失败忽略，主因是上面的写入错误 */ }
+      }
+      try { fs.rmSync(tmpFile, { force: true }); } catch { /* 清理临时文件失败忽略，不掩盖原始错误 */ }
+      throw error;
+    }
     delete this.cache.config[app];
   }
 
