@@ -9,10 +9,12 @@ Karin 插件：新成员入群时，按“地点 -> 专属职业/种族 -> 专�
 ```text
 random-welcome/
 ├─ apps/
-│  └─ randomWelcome.js
+│  ├─ randomWelcome.js
+│  └─ web.js                 (注册 Web 配置页路由)
 ├─ utils/
 │  ├─ config.js
-│  └─ renderer.js
+│  ├─ renderer.js
+│  └─ webApi.js              (Web 配置页 JSON 接口)
 ├─ defSet/
 │  ├─ setting.yaml
 │  ├─ lexicon.yaml
@@ -22,7 +24,10 @@ random-welcome/
 │  ├─ lexicon.yaml (运行中自动生成)
 │  └─ templates.yaml (运行中自动生成)
 ├─ resources/
-│  └─ welcome/
+│  ├─ welcome/
+│  └─ web/                   (Web 配置页构建产物，随仓库提交)
+├─ web/                      (Web 配置页源码：Vite + React + TypeScript)
+├─ web.config.js             (Web 配置页入口声明)
 ├─ index.js
 └─ package.json
 ```
@@ -113,6 +118,26 @@ render_mode: image
 ```
 
 会话有效期 **120 秒**（内存保存，不落盘）。超时后回复编号会提示「列表已过期，重新发送 #欢迎词预览关闭 获取。」；**不在会话中、非主人、或群聊里的纯数字消息不会被执行**（直接放行给其它插件），因此不会抢占其它插件的数字消息。
+
+## Web 配置页
+
+插件自带一个网页配置界面（Karin Web UI → 插件列表 → 随机欢迎词 → 「随机欢迎词配置」，也可以直接访问 `http://<你的 Karin 地址>/random-welcome/config`）。
+
+- 鉴权：走 Karin 自己的登录态（和 Karin Web UI 同一套），首次打开需要输入 Karin 的 HTTP 鉴权密钥（`.env` 里的 `HTTP_AUTH_KEY`）。
+- 能改什么：全局参数（默认风格 / 渲染模式 / @新人 / 延迟区间 / 去重窗口）、群规则（每个群的开关、@新人、群内预览、风格，可加群可删群）、按风格编辑词库与模板、以及直接预览文案和图片卡片。
+- 与命令的关系：页面写的就是 `config/` 下那几份 YAML（原子写，和 `#添加欢迎词` 等命令共用一份数据），两边改都不冲突，页面改完群里立刻生效。
+- 词库/模板分两层：`defSet/` 里的**内置**条目只读（升级插件不会丢），`config/` 里的**自定义**条目可以随便增删。运行时生效的是「内置 + 自定义」合并结果。
+- 内置风格（`defSet/` 里定义过的名字）不能改名或删除；自定义风格可以，删除前要先把它从默认风格和群规则里摘掉。
+
+改了前端源码后需要重新构建（产物在 `resources/web/`，已随仓库提交，不构建也能用）：
+
+```bash
+cd plugins/karin-plugin-random-welcome
+pnpm install --ignore-workspace   # 首次
+pnpm build:web
+```
+
+后端（`apps/web.js`、`utils/webApi.js`、`web.config.js`）改动需要重启 Karin；前端构建产物是静态文件，构建完刷新页面即可。
 
 ## 配置目录
 

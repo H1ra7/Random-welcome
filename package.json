@@ -1,6 +1,6 @@
 {
   "name": "random-welcome",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Karin 随机欢迎词插件",
   "type": "module",
   "main": "index.js",
@@ -8,7 +8,10 @@
   "scripts": {
     "bench": "node scripts/bench.js",
     "check:semantic": "node scripts/semantic-check.js",
-    "preview:html": "node scripts/preview-html.js"
+    "preview:html": "node scripts/preview-html.js",
+    "build:web": "vite build --config web/vite.config.ts",
+    "build": "pnpm build:web",
+    "typecheck:web": "tsc -p web/tsconfig.json --noEmit"
   },
   "karin": {
     "apps": [
@@ -21,13 +24,32 @@
       "config",
       "data",
       "defSet",
-      "resources"
-    ]
+      "resources",
+      "web.config.js"
+    ],
+    "web": "./web.config.js"
   },
   "engines": {
     "karin": ">=1.18.0"
   },
+  "dependencies": {
+    "@heroui/react": "^3.1.0",
+    "@heroui/styles": "^3.1.0",
+    "ahooks": "^3.9.7",
+    "axios": "^1.17.0",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.16",
     "yaml": "^2.8.0"
   }
 }

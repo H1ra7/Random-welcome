@@ -1,0 +1,4 @@
+# 让插件目录脱离 karin 的 pnpm workspace，便于单独安装/构建 web 前端
+# （karin 根目录的 pnpm install 仍会按 plugins/* 收录本插件）
+packages: []
+lockfile: false

@@ -20,6 +20,24 @@ const DEFAULT_RENDER_MODE = "text";
 const VALID_RENDER_MODES = new Set(["text", "image"]);
 const YAML_EVENT_CHANGE = "change";
 const YAML_EVENT_RENAME = "rename";
+// Web 配置页的限制：与命令层的限制保持一致（见 apps/randomWelcome.js）
+const MAX_TEMPLATE_LENGTH = 300;
+const MAX_LEXICON_LOCATION_LENGTH = 30;
+const MAX_LEXICON_ITEM_LENGTH = 30;
+const MAX_DELAY_SEC = 600;
+const MAX_DEDUPE_WINDOW_SEC = 86400;
+const DEFAULT_DELAY_MIN = 1;
+const DEFAULT_DELAY_MAX = 3;
+const PROFILE_NAME_REG = /^[\w\u4e00-\u9fa5-]{1,24}$/;
+
+function normalizeSeconds(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? Math.floor(num) : fallback;
+}
+
+function isValidProfileName(name) {
+  return typeof name === "string" && PROFILE_NAME_REG.test(name.trim());
+}
 
 function toGroupKey(groupId) {
   return String(Number(groupId));
@@ -476,6 +494,351 @@ class Config {
       .filter(([, rule]) => rule.enabled)
       .map(([key]) => Number(key))
       .sort((a, b) => a - b);
+  }
+
+  /** ==================== Web 配置页支持 ==================== */
+  /** 内置（defSet）里出现过的风格名 */
+  getBuiltinProfileNames() {
+    const lexicon = this.normalizeLexiconSource(this.getDefSet(LEXICON_APP)).profiles;
+    const templates = this.normalizeTemplateSource(this.getDefSet(TEMPLATES_APP)).profiles;
+    return new Set([...Object.keys(lexicon), ...Object.keys(templates)]);
+  }
+
+  /** 原样读取 config/ 下某个文件的 profiles（不补默认条目，避免写盘时凭空多出 default） */
+  readRawProfiles(app) {
+    const raw = this.getConfig(app);
+    const source = raw && typeof raw === "object" ? raw : {};
+    const profiles = source.profiles && typeof source.profiles === "object" ? source.profiles : {};
+    return { ...profiles };
+  }
+
+  /** Web 页面用的全局设置（已补默认值，delay_min/delay_max 来自 defSet） */
+  getWebSetting() {
+    const setting = this.setting;
+    return {
+      default_profile: setting.default_profile,
+      render_mode: setting.render_mode,
+      mention_new_member: Boolean(setting.mention_new_member),
+      dedupe_window_sec: normalizeSeconds(setting.dedupe_window_sec, DEFAULT_DEDUPE_WINDOW_SEC),
+      delay_min: normalizeSeconds(setting.delay_min, DEFAULT_DELAY_MIN),
+      delay_max: normalizeSeconds(setting.delay_max, DEFAULT_DELAY_MAX),
+    };
+  }
+
+  /** Web 页面用的群规则列表（含缺省条目），按群号升序 */
+  listGroupRules() {
+    const setting = this.setting;
+    return Object.keys(setting.group_rules)
+      .map((key) => toGroupId(key))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .sort((a, b) => a - b)
+      .map((id) => {
+        const rule = setting.group_rules[toGroupKey(id)] || {};
+        return {
+          id,
+          enabled: Boolean(rule.enabled),
+          profile: rule.profile || setting.default_profile,
+          mention_new_member: Boolean(rule.mention_new_member),
+          allow_preview: rule.allow_preview === true,
+        };
+      });
+  }
+
+  /** 每个风格的内置 / 自定义条目；内置只读，自定义可增删 */
+  listProfileContents() {
+    const lexiconDef = this.normalizeLexiconSource(this.getDefSet(LEXICON_APP)).profiles;
+    const lexiconConf = this.normalizeLexiconSource(this.getConfig(LEXICON_APP)).profiles;
+    const templateDef = this.normalizeTemplateSource(this.getDefSet(TEMPLATES_APP)).profiles;
+    const templateConf = this.normalizeTemplateSource(this.getConfig(TEMPLATES_APP)).profiles;
+    const builtin = this.getBuiltinProfileNames();
+    const names = new Set([
+      ...Object.keys(lexiconDef),
+      ...Object.keys(lexiconConf),
+      ...Object.keys(templateDef),
+      ...Object.keys(templateConf),
+    ]);
+    return [...names]
+      .map((name) => ({
+        name,
+        builtin: builtin.has(name),
+        lexiconBuiltin: Array.isArray(lexiconDef[name]?.lexicon) ? lexiconDef[name].lexicon : [],
+        lexiconCustom: Array.isArray(lexiconConf[name]?.lexicon) ? lexiconConf[name].lexicon : [],
+        templatesBuiltin: Array.isArray(templateDef[name]?.templates) ? templateDef[name].templates : [],
+        templatesCustom: Array.isArray(templateConf[name]?.templates) ? templateConf[name].templates : [],
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** 按风格取词库/模板（内置 + 自定义合并），供 Web 预览使用 */
+  getWelcomeDataByProfile(profileName) {
+    const fallbackName = this.setting.default_profile || DEFAULT_PROFILE;
+    const name = this.profileExists(profileName)
+      ? profileName
+      : (this.profileExists(fallbackName) ? fallbackName : DEFAULT_PROFILE);
+    return {
+      profile: name,
+      lexicon: this.getMergedLexiconProfiles()[name]?.lexicon || [],
+      templates: this.getMergedTemplateProfiles()[name]?.templates || [],
+    };
+  }
+
+  /** 保存全局设置；返回 { changed, errors } */
+  saveWebSetting(patch) {
+    const errors = [];
+    const current = this.getWritableSetting();
+    const profiles = this.listProfiles();
+    const before = {
+      ...current,
+      delay_min: normalizeSeconds(current.delay_min, DEFAULT_DELAY_MIN),
+      delay_max: normalizeSeconds(current.delay_max, DEFAULT_DELAY_MAX),
+    };
+    const next = { ...before };
+
+    if (patch?.default_profile !== undefined) {
+      const name = typeof patch.default_profile === "string" ? patch.default_profile.trim() : "";
+      if (!profiles.includes(name)) errors.push(`风格不存在：${name}`);
+      else next.default_profile = name;
+    }
+
+    if (patch?.render_mode !== undefined) {
+      if (!VALID_RENDER_MODES.has(patch.render_mode)) errors.push("渲染模式只能是 text 或 image");
+      else next.render_mode = patch.render_mode;
+    }
+
+    if (patch?.mention_new_member !== undefined) {
+      if (typeof patch.mention_new_member !== "boolean") errors.push("「@新人」需要是布尔值");
+      else next.mention_new_member = patch.mention_new_member;
+    }
+
+    if (patch?.dedupe_window_sec !== undefined) {
+      const dedupe = Number(patch.dedupe_window_sec);
+      if (!Number.isFinite(dedupe) || dedupe < 0 || dedupe > MAX_DEDUPE_WINDOW_SEC) {
+        errors.push(`去重窗口需在 0-${MAX_DEDUPE_WINDOW_SEC} 秒之间`);
+      } else {
+        next.dedupe_window_sec = Math.floor(dedupe);
+      }
+    }
+
+    if (patch?.delay_min !== undefined || patch?.delay_max !== undefined) {
+      const min = Number.isFinite(Number(patch?.delay_min)) ? Number(patch.delay_min) : before.delay_min;
+      const max = Number.isFinite(Number(patch?.delay_max)) ? Number(patch.delay_max) : before.delay_max;
+      if (min < 0 || min > MAX_DELAY_SEC) errors.push(`延迟下限需在 0-${MAX_DELAY_SEC} 秒之间`);
+      if (max < 0 || max > MAX_DELAY_SEC) errors.push(`延迟上限需在 0-${MAX_DELAY_SEC} 秒之间`);
+      if (max < min) errors.push("延迟上限不能小于下限（区间无效时插件会跳过延迟）");
+      if (errors.length === 0) {
+        next.delay_min = Math.floor(min);
+        next.delay_max = Math.floor(max);
+      }
+    }
+
+    if (errors.length > 0) return { changed: false, errors };
+    if (JSON.stringify(before) === JSON.stringify(next)) return { changed: false, errors: [] };
+    next.groups = this.toLegacyGroups(next.group_rules || {});
+    this.saveConfig(SETTING_APP, next);
+    return { changed: true, errors: [] };
+  }
+
+  /** 整体保存群规则；返回 { changed, errors } */
+  saveWebGroupRules(rules) {
+    if (!Array.isArray(rules)) return { changed: false, errors: ["群规则需要是数组"] };
+    const errors = [];
+    const current = this.getWritableSetting();
+    const profiles = this.listProfiles();
+    const groupRules = {};
+    const seen = new Set();
+
+    for (const raw of rules) {
+      const id = toGroupId(raw?.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        errors.push(`群号无效：${raw?.id}`);
+        continue;
+      }
+      const key = toGroupKey(id);
+      if (seen.has(key)) {
+        errors.push(`群号重复：${key}`);
+        continue;
+      }
+      seen.add(key);
+      const profile = typeof raw?.profile === "string" && raw.profile.trim() !== ""
+        ? raw.profile.trim()
+        : (current.default_profile || DEFAULT_PROFILE);
+      if (!profiles.includes(profile)) {
+        errors.push(`群 ${key} 引用的风格不存在：${profile}`);
+        continue;
+      }
+      const rule = {
+        enabled: Boolean(raw?.enabled),
+        profile,
+        mention_new_member: typeof raw?.mention_new_member === "boolean"
+          ? raw.mention_new_member
+          : Boolean(current.mention_new_member),
+      };
+      // 只写显式开启；关闭保持缺省，和命令层语义一致
+      if (raw?.allow_preview === true) rule.allow_preview = true;
+      groupRules[key] = rule;
+    }
+
+    if (errors.length > 0) return { changed: false, errors };
+    if (JSON.stringify(current.group_rules || {}) === JSON.stringify(groupRules)) {
+      return { changed: false, errors: [] };
+    }
+    const next = { ...current, group_rules: groupRules, groups: this.toLegacyGroups(groupRules) };
+    this.saveConfig(SETTING_APP, next);
+    return { changed: true, errors: [] };
+  }
+
+  /** 保存某个风格的自定义词库 / 模板（内置层不动）；返回 { changed, errors } */
+  saveWebProfileContent(profile, payload) {
+    const name = typeof profile === "string" ? profile.trim() : "";
+    if (!name) return { changed: false, errors: ["风格名不能为空"] };
+    const errors = [];
+    let changed = false;
+
+    if (payload?.lexicon !== undefined) {
+      if (!Array.isArray(payload.lexicon)) {
+        errors.push("词库需要是数组");
+      } else {
+        const items = [];
+        payload.lexicon.forEach((item, index) => {
+          const location = typeof item?.location === "string" ? item.location.trim() : "";
+          const roles = normalizeList(item?.roles);
+          const foods = normalizeList(item?.foods);
+          if (!location) {
+            errors.push(`第 ${index + 1} 条词条缺少地点`);
+            return;
+          }
+          if (location.length > MAX_LEXICON_LOCATION_LENGTH) {
+            errors.push(`第 ${index + 1} 条词条的地点超过 ${MAX_LEXICON_LOCATION_LENGTH} 字`);
+            return;
+          }
+          if (roles.length === 0 || foods.length === 0) {
+            errors.push(`词条「${location}」的角色和食物都不能为空`);
+            return;
+          }
+          if (roles.some((role) => role.length > MAX_LEXICON_ITEM_LENGTH) || foods.some((food) => food.length > MAX_LEXICON_ITEM_LENGTH)) {
+            errors.push(`词条「${location}」的角色/食物单项超过 ${MAX_LEXICON_ITEM_LENGTH} 字`);
+            return;
+          }
+          items.push({ location, roles, foods });
+        });
+        if (errors.length === 0) {
+          const profiles = this.readRawProfiles(LEXICON_APP);
+          const before = JSON.stringify(Array.isArray(profiles[name]?.lexicon) ? profiles[name].lexicon : []);
+          if (before !== JSON.stringify(items)) {
+            profiles[name] = { lexicon: items };
+            this.saveConfig(LEXICON_APP, { profiles });
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (payload?.templates !== undefined) {
+      if (!Array.isArray(payload.templates)) {
+        errors.push("模板需要是数组");
+      } else {
+        const items = [];
+        payload.templates.forEach((item, index) => {
+          const text = typeof item === "string" ? item.trim() : "";
+          if (!text) {
+            errors.push(`第 ${index + 1} 条模板是空的`);
+            return;
+          }
+          if (text.length > MAX_TEMPLATE_LENGTH) {
+            errors.push(`第 ${index + 1} 条模板超过 ${MAX_TEMPLATE_LENGTH} 字`);
+            return;
+          }
+          items.push(text);
+        });
+        if (errors.length === 0) {
+          const profiles = this.readRawProfiles(TEMPLATES_APP);
+          const before = JSON.stringify(Array.isArray(profiles[name]?.templates) ? profiles[name].templates : []);
+          if (before !== JSON.stringify(items)) {
+            profiles[name] = { templates: items };
+            this.saveConfig(TEMPLATES_APP, { profiles });
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (errors.length > 0) return { changed: false, errors };
+    return { changed, errors: [] };
+  }
+
+  /** 新建风格（两个层都建空条目）；返回 { changed, errors } */
+  createWebProfile(rawName) {
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!isValidProfileName(name)) {
+      return { changed: false, errors: ["风格名只能是 1-24 位中英文、数字、下划线或短横线"] };
+    }
+    if (this.profileExists(name)) return { changed: false, errors: [`风格已存在：${name}`] };
+    const lexiconProfiles = this.readRawProfiles(LEXICON_APP);
+    lexiconProfiles[name] = { lexicon: [] };
+    this.saveConfig(LEXICON_APP, { profiles: lexiconProfiles });
+    const templateProfiles = this.readRawProfiles(TEMPLATES_APP);
+    templateProfiles[name] = { templates: [] };
+    this.saveConfig(TEMPLATES_APP, { profiles: templateProfiles });
+    return { changed: true, errors: [] };
+  }
+
+  /** 重命名风格：只允许重命名自定义风格，并同步群规则里的引用 */
+  renameWebProfile(rawFrom, rawTo) {
+    const from = typeof rawFrom === "string" ? rawFrom.trim() : "";
+    const to = typeof rawTo === "string" ? rawTo.trim() : "";
+    if (!isValidProfileName(to)) {
+      return { changed: false, errors: ["新风格名只能是 1-24 位中英文、数字、下划线或短横线"] };
+    }
+    if (this.getBuiltinProfileNames().has(from)) {
+      return { changed: false, errors: [`「${from}」是插件内置风格，改不了名字（可以新建一个风格再改内容）`] };
+    }
+    if (!this.profileExists(from)) return { changed: false, errors: [`风格不存在：${from}`] };
+    if (from === to) return { changed: false, errors: [] };
+    if (this.profileExists(to)) return { changed: false, errors: [`风格已存在：${to}`] };
+
+    for (const app of [LEXICON_APP, TEMPLATES_APP]) {
+      const profiles = this.readRawProfiles(app);
+      if (profiles[from]) {
+        profiles[to] = profiles[from];
+        delete profiles[from];
+        this.saveConfig(app, { profiles });
+      }
+    }
+
+    const setting = this.getWritableSetting();
+    if (setting.default_profile === from) setting.default_profile = to;
+    for (const rule of Object.values(setting.group_rules || {})) {
+      if (rule.profile === from) rule.profile = to;
+    }
+    setting.groups = this.toLegacyGroups(setting.group_rules || {});
+    this.saveConfig(SETTING_APP, setting);
+    return { changed: true, errors: [] };
+  }
+
+  /** 删除风格：内置风格不能删，正在作为默认风格的也不能删 */
+  deleteWebProfile(rawName) {
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!name) return { changed: false, errors: ["风格名不能为空"] };
+    if (this.getBuiltinProfileNames().has(name)) {
+      return { changed: false, errors: [`「${name}」是插件内置风格，删不了（可以清空它的自定义内容）`] };
+    }
+    if (!this.profileExists(name)) return { changed: false, errors: [`风格不存在：${name}`] };
+    if ((this.setting.default_profile || DEFAULT_PROFILE) === name) {
+      return { changed: false, errors: [`「${name}」正在被当作默认风格，先换一个默认风格再删`] };
+    }
+    const used = this.listGroupRules().filter((rule) => rule.profile === name).map((rule) => rule.id);
+    if (used.length > 0) {
+      return { changed: false, errors: [`还有群在用这个风格：${used.join("、")}`] };
+    }
+
+    for (const app of [LEXICON_APP, TEMPLATES_APP]) {
+      const profiles = this.readRawProfiles(app);
+      if (profiles[name]) {
+        delete profiles[name];
+        this.saveConfig(app, { profiles });
+      }
+    }
+    return { changed: true, errors: [] };
   }
 
   normalizeLexiconSource(raw) {
